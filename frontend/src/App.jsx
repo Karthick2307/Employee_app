@@ -7,33 +7,48 @@ import EmployeeForm from "./pages/EmployeeForm";
 import EmployeeView from "./pages/EmployeeView";
 import EmployeeEdit from "./pages/EmployeeEdit";
 import Login from "./pages/Login";
+import UsersAdmin from "./pages/UsersAdmin";
+import ChecklistList from "./pages/checklists/ChecklistList";
+import ChecklistCreate from "./pages/checklists/ChecklistCreate";
+import ChecklistView from "./pages/checklists/ChecklistView";
+import ChecklistTaskView from "./pages/checklists/ChecklistTaskView";
+import ChecklistApprovals from "./pages/checklists/ChecklistApprovals";
+import ChecklistReport from "./pages/reports/ChecklistReport";
 
+import CompanyMaster from "./pages/masters/CompanyMaster";
 import DepartmentMaster from "./pages/masters/DepartmentMaster";
 import DesignationMaster from "./pages/masters/DesignationMaster";
 import SiteMaster from "./pages/masters/SiteMaster";
-
-/* ================= AUTH HELPERS ================= */
 
 const getUser = () => {
   const user = localStorage.getItem("user");
   return user ? JSON.parse(user) : null;
 };
 
+const hasSession = () => Boolean(localStorage.getItem("token")) && Boolean(getUser());
+
 const isAdmin = () => getUser()?.role === "admin";
 
-/* ================= ROUTE GUARDS ================= */
+const getEmployeeViewPath = () => {
+  const user = getUser();
+  return user?.id ? `/view/${user.id}` : "/login";
+};
 
 const PrivateRoute = ({ children }) => {
-  return getUser() ? children : <Navigate to="/login" replace />;
+  return hasSession() ? children : <Navigate to="/login" replace />;
 };
 
 const AdminRoute = ({ children }) => {
-  if (!getUser()) return <Navigate to="/login" replace />;
-  if (!isAdmin()) return <Navigate to="/employees" replace />;
+  if (!hasSession()) return <Navigate to="/login" replace />;
+  if (!isAdmin()) return <Navigate to={getEmployeeViewPath()} replace />;
   return children;
 };
 
-/* ================= APP ================= */
+const EmployeeIndexRoute = () => {
+  if (!hasSession()) return <Navigate to="/login" replace />;
+  if (!isAdmin()) return <Navigate to={getEmployeeViewPath()} replace />;
+  return <EmployeeList />;
+};
 
 export default function App() {
   const location = useLocation();
@@ -44,15 +59,17 @@ export default function App() {
       {!hideNavbar && <Navbar />}
 
       <Routes>
-        {/* ---------------- LOGIN ---------------- */}
         <Route
           path="/login"
           element={
-            getUser() ? <Navigate to="/employees" replace /> : <Login />
+            hasSession() ? (
+              <Navigate to={isAdmin() ? "/users" : getEmployeeViewPath()} replace />
+            ) : (
+              <Login />
+            )
           }
         />
 
-        {/* ---------------- DASHBOARD ---------------- */}
         <Route
           path="/dashboard"
           element={
@@ -62,13 +79,48 @@ export default function App() {
           }
         />
 
-        {/* ---------------- EMPLOYEES ---------------- */}
         <Route
           path="/employees"
           element={
             <PrivateRoute>
-              <EmployeeList />
+              <EmployeeIndexRoute />
             </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/checklists"
+          element={
+            <PrivateRoute>
+              <ChecklistList />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/checklists/tasks/:id"
+          element={
+            <PrivateRoute>
+              <ChecklistTaskView />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/checklists/approvals"
+          element={
+            <PrivateRoute>
+              <ChecklistApprovals />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/reports/checklists"
+          element={
+            <AdminRoute>
+              <ChecklistReport />
+            </AdminRoute>
           }
         />
 
@@ -81,7 +133,6 @@ export default function App() {
           }
         />
 
-        {/* ---------------- ADMIN ONLY ---------------- */}
         <Route
           path="/add"
           element={
@@ -96,6 +147,15 @@ export default function App() {
           element={
             <AdminRoute>
               <EmployeeEdit />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/masters/companies"
+          element={
+            <AdminRoute>
+              <CompanyMaster />
             </AdminRoute>
           }
         />
@@ -127,10 +187,56 @@ export default function App() {
           }
         />
 
-        {/* ---------------- DEFAULT ---------------- */}
-        <Route path="/" element={<Navigate to="/employees" replace />} />
+        <Route
+          path="/masters/checklists"
+          element={
+            <AdminRoute>
+              <Navigate to="/checklists" replace />
+            </AdminRoute>
+          }
+        />
 
-        {/* ---------------- FALLBACK ---------------- */}
+        <Route
+          path="/checklists/create"
+          element={
+            <AdminRoute>
+              <ChecklistCreate />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/checklists/edit/:id"
+          element={
+            <AdminRoute>
+              <ChecklistCreate mode="edit" />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/checklists/:id"
+          element={
+            <AdminRoute>
+              <ChecklistView />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/users"
+          element={
+            <AdminRoute>
+              <UsersAdmin />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/"
+          element={<Navigate to={isAdmin() ? "/users" : getEmployeeViewPath()} replace />}
+        />
+
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </>

@@ -1,12 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../api/axios";
+import { formatDepartmentList } from "../utils/departmentDisplay";
+import { formatSiteList } from "../utils/siteDisplay";
 
 export default function EmployeeView() {
   const { id } = useParams();
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
+  const backPath = isAdmin ? "/employees" : "/dashboard";
   const [emp, setEmp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
+  const uploadBaseUrl = useMemo(
+    () => (api.defaults.baseURL || "http://localhost:5000/api").replace(/\/api\/?$/, ""),
+    []
+  );
 
   useEffect(() => {
     loadEmployee();
@@ -36,7 +45,7 @@ export default function EmployeeView() {
     <div className="container mt-4">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4>Employee Details</h4>
-        <Link to="/employees" className="btn btn-secondary">
+        <Link to={backPath} className="btn btn-secondary">
           Back
         </Link>
       </div>
@@ -46,7 +55,7 @@ export default function EmployeeView() {
         <div className="text-center mb-4">
           {!imgError && emp.photo ? (
             <img
-              src={`http://localhost:5000/uploads/${emp.photo}`}
+              src={`${uploadBaseUrl}/uploads/${emp.photo}`}
               alt="Employee"
               width="120"
               height="120"
@@ -101,8 +110,13 @@ export default function EmployeeView() {
             </tr>
 
             <tr>
-              <th>Department</th>
-              <td>{emp.department?.name || "-"}</td>
+              <th>Departments</th>
+              <td>{emp.departmentDisplay || formatDepartmentList(emp.departmentDetails || emp.department) || "-"}</td>
+            </tr>
+
+            <tr>
+              <th>Sub Departments</th>
+              <td>{emp.subDepartmentDisplay || emp.subDepartmentPath || emp.subDepartmentName || "-"}</td>
             </tr>
 
             <tr>
@@ -111,12 +125,22 @@ export default function EmployeeView() {
             </tr>
 
             <tr>
+              <th>Superior Employee</th>
+              <td>{emp.superiorEmployeeName || "-"}</td>
+            </tr>
+
+            <tr>
               <th>Sites</th>
               <td>
                 {emp.sites && emp.sites.length > 0
-                  ? emp.sites.map(s => s.name).join(", ")
+                  ? formatSiteList(emp.sites)
                   : "-"}
               </td>
+            </tr>
+
+            <tr>
+              <th>Sub Sites</th>
+              <td>{emp.subSiteDisplay || "-"}</td>
             </tr>
 
             <tr>
@@ -145,7 +169,7 @@ export default function EmployeeView() {
 
         {/* ================= ACTIONS ================= */}
         <div className="mt-3">
-          {emp.isActive && (
+          {isAdmin && emp.isActive && (
             <Link
               to={`/edit/${emp._id}`}
               className="btn btn-warning me-2"
@@ -154,8 +178,8 @@ export default function EmployeeView() {
             </Link>
           )}
 
-          <Link to="/employees" className="btn btn-outline-secondary">
-            Back to List
+          <Link to={backPath} className="btn btn-outline-secondary">
+            {isAdmin ? "Back to List" : "Back"}
           </Link>
         </div>
       </div>

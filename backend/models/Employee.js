@@ -1,5 +1,20 @@
 const mongoose = require("mongoose");
 
+const employeeSubSiteSchema = new mongoose.Schema(
+  {
+    site: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Site",
+      required: true
+    },
+    subSite: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true
+    }
+  },
+  { _id: false }
+);
+
 const employeeSchema = new mongoose.Schema(
   {
     employeeCode: {
@@ -19,6 +34,12 @@ const employeeSchema = new mongoose.Schema(
       trim: true
     },
 
+    password: {
+      type: String,
+      default: "",
+      select: false
+    },
+
     mobile: {
       type: String,
       trim: true
@@ -31,15 +52,30 @@ const employeeSchema = new mongoose.Schema(
     },
 
     department: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Department",
-      required: true
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Department"
+        }
+      ],
+      default: []
+    },
+
+    subDepartment: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: []
     },
 
     designation: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Designation",
       required: true
+    },
+
+    superiorEmployee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Employee",
+      default: null
     },
 
     /* ✅ MULTIPLE SITES */
@@ -49,6 +85,11 @@ const employeeSchema = new mongoose.Schema(
         ref: "Site"
       }
     ],
+
+    subSites: {
+      type: [employeeSubSiteSchema],
+      default: []
+    },
 
     photo: {
       type: String,
@@ -66,3 +107,4 @@ const employeeSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("Employee", employeeSchema);
+

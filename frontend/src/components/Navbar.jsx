@@ -4,9 +4,22 @@ import { useState } from "react";
 export default function Navbar() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const isAdmin = user?.role === "admin";
+  const role = String(user?.role || "").trim().toLowerCase();
+  const isAdmin = role === "admin";
+  const userDisplayId = user?.email || user?.employeeCode || user?.name || "";
+  const employeeMenuPath = user?.id ? `/view/${user.id}` : "/employees";
+  const panelTitle = isAdmin ? "Check List Admin Panel" : "Check List User Panel";
+  const homePath = "/dashboard";
 
-  const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [mastersOpen, setMastersOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
+
+  const closeMenus = () => {
+    setMenuOpen(false);
+    setMastersOpen(false);
+    setReportsOpen(false);
+  };
 
   const logout = () => {
     localStorage.clear();
@@ -15,100 +28,141 @@ export default function Navbar() {
 
   return (
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark px-3">
-      {/* BRAND */}
-      <Link className="navbar-brand" to="/">
-        Employee App
+      <Link className="navbar-brand" to={homePath} onClick={closeMenus}>
+        {panelTitle}
       </Link>
 
-      {/* TOGGLER */}
       <button
         className="navbar-toggler"
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => setMenuOpen((prev) => !prev)}
       >
         <span className="navbar-toggler-icon"></span>
       </button>
 
-      {/* MENU */}
-      <div className={`collapse navbar-collapse ${open ? "show" : ""}`}>
+      <div className={`collapse navbar-collapse ${menuOpen ? "show" : ""}`}>
         <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-
-          {/* DASHBOARD – FIXED */}
           <li className="nav-item">
-            <Link
-              className="nav-link"
-              to="/dashboard"
-              onClick={() => setOpen(false)}
-            >
+            <Link className="nav-link" to="/dashboard" onClick={closeMenus}>
               Dashboard
             </Link>
           </li>
 
-          {/* EMPLOYEES */}
           <li className="nav-item">
             <Link
               className="nav-link"
-              to="/"
-              onClick={() => setOpen(false)}
+              to={isAdmin ? "/employees" : employeeMenuPath}
+              onClick={closeMenus}
             >
               Employees
             </Link>
           </li>
 
-          {/* ADMIN ONLY */}
-          {isAdmin && (
-            <li className="nav-item dropdown">
-              <span
-                className="nav-link dropdown-toggle"
-                role="button"
-                onClick={() => setOpen(open => !open)}
-              >
-                Masters
-              </span>
+          <li className="nav-item">
+            <Link className="nav-link" to="/checklists" onClick={closeMenus}>
+              {isAdmin ? "Checklist Master" : "My Checklist Tasks"}
+            </Link>
+          </li>
 
-              <ul className={`dropdown-menu ${open ? "show" : ""}`}>
-                <li>
-                  <Link
-                    className="dropdown-item"
-                    to="/masters/departments"
-                    onClick={() => setOpen(false)}
-                  >
-                    Departments
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    className="dropdown-item"
-                    to="/masters/designations"
-                    onClick={() => setOpen(false)}
-                  >
-                    Designations
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    className="dropdown-item"
-                    to="/masters/sites"
-                    onClick={() => setOpen(false)}
-                  >
-                    Sites
-                  </Link>
-                </li>
-              </ul>
+          {!isAdmin && (
+            <li className="nav-item">
+              <Link className="nav-link" to="/checklists/approvals" onClick={closeMenus}>
+                Approvals
+              </Link>
             </li>
+          )}
+
+          {isAdmin && (
+            <>
+              <li className="nav-item dropdown">
+                <span
+                  className="nav-link dropdown-toggle"
+                  role="button"
+                  onClick={() => {
+                    setReportsOpen((prev) => !prev);
+                    setMastersOpen(false);
+                  }}
+                >
+                  Reports
+                </span>
+                <ul className={`dropdown-menu ${reportsOpen ? "show" : ""}`}>
+                  <li>
+                    <Link
+                      className="dropdown-item"
+                      to="/reports/checklists"
+                      onClick={closeMenus}
+                    >
+                      Checklist Task Report
+                    </Link>
+                  </li>
+                </ul>
+              </li>
+
+              <li className="nav-item">
+                <Link className="nav-link" to="/users" onClick={closeMenus}>
+                  Users
+                </Link>
+              </li>
+
+              <li className="nav-item dropdown">
+                <span
+                  className="nav-link dropdown-toggle"
+                  role="button"
+                  onClick={() => {
+                    setMastersOpen((prev) => !prev);
+                    setReportsOpen(false);
+                  }}
+                >
+                  Masters
+                </span>
+
+                <ul className={`dropdown-menu ${mastersOpen ? "show" : ""}`}>
+                  <li>
+                    <Link
+                      className="dropdown-item"
+                      to="/masters/companies"
+                      onClick={closeMenus}
+                    >
+                      Companies
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      className="dropdown-item"
+                      to="/masters/departments"
+                      onClick={closeMenus}
+                    >
+                      Departments
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      className="dropdown-item"
+                      to="/masters/designations"
+                      onClick={closeMenus}
+                    >
+                      Designations
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      className="dropdown-item"
+                      to="/masters/sites"
+                      onClick={closeMenus}
+                    >
+                      Sites
+                    </Link>
+                  </li>
+                </ul>
+              </li>
+            </>
           )}
         </ul>
 
-        {/* RIGHT SIDE */}
         <div className="d-flex align-items-center gap-3">
-          <span className="text-white small">
-            {user?.email}
-          </span>
+          <span className="text-white small">{userDisplayId}</span>
 
-          <button
-            onClick={logout}
-            className="btn btn-danger btn-sm"
-          >
+          <button onClick={logout} className="btn btn-danger btn-sm">
             Logout
           </button>
         </div>

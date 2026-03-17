@@ -1,9 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../api/axios";
+import { formatDepartmentList } from "../utils/departmentDisplay";
+import { formatSiteList } from "../utils/siteDisplay";
 
 export default function EmployeeList() {
   const [employees, setEmployees] = useState([]);
+  const [photoErrors, setPhotoErrors] = useState({});
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -11,10 +14,15 @@ export default function EmployeeList() {
   /* ===== DASHBOARD FILTER ===== */
   const [params] = useSearchParams();
   const department = params.get("department");
+  const paramsKey = params.toString();
 
   /* ===== USER ROLE ===== */
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const isAdmin = user?.role === "admin";
+  const uploadBaseUrl = useMemo(
+    () => (api.defaults.baseURL || "http://localhost:5000/api").replace(/\/api\/?$/, ""),
+    []
+  );
 
   /* ===== LOAD EMPLOYEES ===== */
   const loadEmployees = useCallback(async () => {
@@ -29,6 +37,7 @@ export default function EmployeeList() {
       });
 
       setEmployees(Array.isArray(res.data) ? res.data : []);
+      setPhotoErrors({});
     } catch (err) {
       console.error("Load employees failed:", err);
       setEmployees([]);
@@ -39,7 +48,7 @@ export default function EmployeeList() {
 
   useEffect(() => {
     loadEmployees();
-  }, [loadEmployees, params.toString()]);
+  }, [loadEmployees, paramsKey]);
 
   /* ===== DELETE ===== */
   const removeEmployee = async (id) => {
@@ -83,7 +92,7 @@ export default function EmployeeList() {
       link.download = "employees.xlsx";
       link.click();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       alert("Excel export failed");
     }
   };
@@ -134,7 +143,11 @@ export default function EmployeeList() {
             <th>Photo</th>
             <th>Code</th>
             <th>Name</th>
-            <th>Department</th>
+            <th>Departments</th>
+            <th>Sub Departments</th>
+            <th>Superior Employee</th>
+            <th>Sites</th>
+            <th>Sub Sites</th>
             <th>Designation</th>
             <th>Status</th>
             <th width="260">Actions</th>
@@ -144,7 +157,7 @@ export default function EmployeeList() {
         <tbody>
           {loading && (
             <tr>
-              <td colSpan="7" className="text-center">
+              <td colSpan="11" className="text-center">
                 Loading...
               </td>
             </tr>
@@ -152,7 +165,7 @@ export default function EmployeeList() {
 
           {!loading && employees.length === 0 && (
             <tr>
-              <td colSpan="7" className="text-center">
+              <td colSpan="11" className="text-center">
                 No employees found
               </td>
             </tr>
@@ -162,13 +175,16 @@ export default function EmployeeList() {
             employees.map((e) => (
               <tr key={e._id}>
                 <td>
-                  {e.photo ? (
+                  {e.photo && !photoErrors[e._id] ? (
                     <img
-                      src={`http://localhost:5000/uploads/${e.photo}`}
+                      src={`${uploadBaseUrl}/uploads/${e.photo}`}
                       alt="emp"
                       width="40"
                       height="40"
                       style={{ borderRadius: "50%", objectFit: "cover" }}
+                      onError={() =>
+                        setPhotoErrors((prev) => ({ ...prev, [e._id]: true }))
+                      }
                     />
                   ) : (
                     "-"
@@ -177,7 +193,11 @@ export default function EmployeeList() {
 
                 <td>{e.employeeCode}</td>
                 <td>{e.employeeName}</td>
-                <td>{e.department?.name || "-"}</td>
+                <td>{e.departmentDisplay || formatDepartmentList(e.departmentDetails || e.department) || "-"}</td>
+                <td>{e.subDepartmentDisplay || e.subDepartmentPath || e.subDepartmentName || "-"}</td>
+                <td>{e.superiorEmployeeName || "-"}</td>
+                <td>{formatSiteList(e.sites) || "-"}</td>
+                <td>{e.subSiteDisplay || "-"}</td>
                 <td>{e.designation?.name || "-"}</td>
 
                 <td>
