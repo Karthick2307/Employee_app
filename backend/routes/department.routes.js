@@ -50,7 +50,11 @@ const parseEmployeeIds = (value) => {
     });
 };
 
-const resolveHeadNames = async ({ headEmployeeIds, fallbackHeadNames }) => {
+const resolveHeadNames = async ({
+  headEmployeeIds,
+  fallbackHeadNames,
+  invalidSelectionMessage = "One or more selected department heads are invalid",
+}) => {
   const employeeIds = parseEmployeeIds(headEmployeeIds);
   const fallbackNames = parseNameList(fallbackHeadNames);
 
@@ -64,7 +68,7 @@ const resolveHeadNames = async ({ headEmployeeIds, fallbackHeadNames }) => {
   );
 
   if (employees.length !== employeeIds.length) {
-    return { error: "One or more selected department heads are invalid" };
+    return { error: invalidSelectionMessage };
   }
 
   const byId = new Map(employees.map((employee) => [String(employee._id), employee]));
@@ -133,10 +137,19 @@ router.post("/", auth, isAdmin, async (req, res) => {
       headEmployeeIds: req.body.headEmployeeIds,
       fallbackHeadNames: req.body.headNames,
     });
+    const { headNames: departmentLeadNames, error: departmentLeadError } =
+      await resolveHeadNames({
+        headEmployeeIds: req.body.departmentLeadEmployeeIds,
+        fallbackHeadNames: req.body.departmentLeadNames,
+        invalidSelectionMessage: "One or more selected department leads are invalid",
+      });
     if (!name) return res.status(400).json({ message: "Department name is required" });
     if (headError) return res.status(400).json({ message: headError });
+    if (departmentLeadError) {
+      return res.status(400).json({ message: departmentLeadError });
+    }
 
-    const data = await Department.create({ name, headNames });
+    const data = await Department.create({ name, headNames, departmentLeadNames });
     res.status(201).json(data);
   } catch (err) {
     if (err?.code === 11000) {
@@ -153,12 +166,21 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
       headEmployeeIds: req.body.headEmployeeIds,
       fallbackHeadNames: req.body.headNames,
     });
+    const { headNames: departmentLeadNames, error: departmentLeadError } =
+      await resolveHeadNames({
+        headEmployeeIds: req.body.departmentLeadEmployeeIds,
+        fallbackHeadNames: req.body.departmentLeadNames,
+        invalidSelectionMessage: "One or more selected department leads are invalid",
+      });
     if (!name) return res.status(400).json({ message: "Department name is required" });
     if (headError) return res.status(400).json({ message: headError });
+    if (departmentLeadError) {
+      return res.status(400).json({ message: departmentLeadError });
+    }
 
     const updated = await Department.findByIdAndUpdate(
       req.params.id,
-      { name, headNames },
+      { name, headNames, departmentLeadNames },
       { new: true, runValidators: true }
     );
 

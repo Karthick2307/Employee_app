@@ -36,6 +36,21 @@ const checklistTaskItemSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    answer: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    employeeAnswerRemark: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    superiorAnswerRemark: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     verified: {
       type: Boolean,
       default: false,
@@ -136,11 +151,106 @@ const checklistTaskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    enableMark: {
+      type: Boolean,
+      default: false,
+    },
+    baseMark: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    delayPenaltyPerDay: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    advanceBonusPerDay: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    finalMark: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    approvalType: {
+      type: String,
+      enum: ["normal", "nil"],
+      default: "normal",
+      index: true,
+    },
+    isNilApproval: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     assignedEmployee: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Employee",
       required: true,
       index: true,
+    },
+    isDependentTask: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    dependencyChecklistId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Checklist",
+      default: null,
+      index: true,
+    },
+    dependencyChecklistNumber: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    dependencyTaskId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ChecklistTask",
+      default: null,
+      index: true,
+    },
+    dependencyTaskNumber: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    targetDayCount: {
+      type: Number,
+      default: null,
+      min: 0.01,
+    },
+    dependencyCompletedAt: {
+      type: Date,
+      default: null,
+    },
+    dependencyTargetDateTime: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    autoCreatedFromDependency: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    dependencyTriggeredAt: {
+      type: Date,
+      default: null,
+    },
+    dependencyStatus: {
+      type: String,
+      enum: ["not_required", "waiting", "unlocked"],
+      default: "not_required",
+      index: true,
+    },
+    unlockedAt: {
+      type: Date,
+      default: null,
     },
     currentApprovalEmployee: {
       type: mongoose.Schema.Types.ObjectId,
@@ -150,7 +260,15 @@ const checklistTaskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["open", "submitted", "approved", "rejected"],
+      enum: [
+        "waiting_dependency",
+        "open",
+        "submitted",
+        "nil_for_approval",
+        "approved",
+        "nil_approved",
+        "rejected",
+      ],
       default: "open",
       index: true,
     },
@@ -177,6 +295,12 @@ const checklistTaskSchema = new mongoose.Schema(
       default: "pending",
       index: true,
     },
+    submissionTimingStatus: {
+      type: String,
+      enum: ["pending", "advance", "on_time", "delayed"],
+      default: "pending",
+      index: true,
+    },
     approvalSteps: {
       type: [checklistTaskApprovalStepSchema],
       default: [],
@@ -190,5 +314,7 @@ const checklistTaskSchema = new mongoose.Schema(
 );
 
 checklistTaskSchema.index({ checklist: 1, occurrenceKey: 1 }, { unique: true });
+checklistTaskSchema.index({ dependencyTaskId: 1, status: 1 });
+checklistTaskSchema.index({ dependencyChecklistId: 1, status: 1 });
 
 module.exports = mongoose.model("ChecklistTask", checklistTaskSchema);

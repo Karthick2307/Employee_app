@@ -1,5 +1,10 @@
 const jwt = require("jsonwebtoken");
 
+const JWT_SECRET = process.env.JWT_SECRET || "secret123";
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "30d";
+
+const verifyAuthToken = (token) => jwt.verify(token, JWT_SECRET);
+
 /**
  * AUTH MIDDLEWARE
  * Checks JWT token
@@ -7,7 +12,6 @@ const jwt = require("jsonwebtoken");
 exports.auth = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
-  // 1️⃣ Check header
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({
       message: "No token provided",
@@ -15,15 +19,10 @@ exports.auth = (req, res, next) => {
   }
 
   try {
-    // 2️⃣ Extract token
     const token = authHeader.split(" ")[1];
+    const decoded = verifyAuthToken(token);
 
-    // 3️⃣ Verify token
-    const decoded = jwt.verify(token, "secret123"); // MUST MATCH login secret
-
-    // 4️⃣ Attach user to request
-    req.user = decoded; // { id, role, email }
-
+    req.user = decoded;
     next();
   } catch (err) {
     console.error("AUTH ERROR:", err);
@@ -44,3 +43,7 @@ exports.isAdmin = (req, res, next) => {
   }
   next();
 };
+
+exports.verifyAuthToken = verifyAuthToken;
+exports.JWT_SECRET = JWT_SECRET;
+exports.JWT_EXPIRES_IN = JWT_EXPIRES_IN;

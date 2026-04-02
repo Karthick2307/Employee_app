@@ -36,6 +36,7 @@ router.put(
 );
 
 // ✅ DELETE EMPLOYEE
+router.post("/bulk-delete", auth, isAdmin, controller.bulkDeleteEmployees);
 router.delete("/:id", auth, isAdmin, controller.deleteEmployee);
 
 // ✅ STATUS TOGGLE

@@ -3,11 +3,16 @@ import { Link, useParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
   formatApprovalLabel,
+  formatChecklistDependencyLabel,
+  formatChecklistScoreLabel,
   formatDateTime,
   formatEmployeeLabel,
   formatPriorityLabel,
   formatScheduleLabel,
   formatTimeLabel,
+  formatMarkValue,
+  formatTargetDayCountLabel,
+  getChecklistMarkConfig,
   getPriorityBadgeClass,
 } from "../../utils/checklistDisplay";
 
@@ -15,8 +20,16 @@ const getChecklistSiteName = (site) => String(site?.name || "").trim();
 
 export default function ChecklistView() {
   const { id } = useParams();
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+  const currentUserRole = String(currentUser?.role || "").trim().toLowerCase();
+  const isAdminChecklistUser = currentUserRole === "admin";
+  const canEditChecklist =
+    currentUserRole === "admin" ||
+    currentUserRole === "user" ||
+    Boolean(currentUser?.checklistMasterAccess);
   const [loading, setLoading] = useState(true);
   const [checklist, setChecklist] = useState(null);
+  const markConfig = getChecklistMarkConfig(checklist || {});
 
   useEffect(() => {
     const loadChecklist = async () => {
@@ -65,9 +78,11 @@ export default function ChecklistView() {
           <Link className="btn btn-outline-secondary" to="/checklists">
             Back
           </Link>
-          <Link className="btn btn-warning" to={`/checklists/edit/${checklist._id}`}>
-            Edit
-          </Link>
+          {canEditChecklist ? (
+            <Link className="btn btn-warning" to={`/checklists/edit/${checklist._id}`}>
+              {isAdminChecklistUser ? "Edit" : "Request Edit"}
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -78,12 +93,54 @@ export default function ChecklistView() {
           <div className="row g-3">
             <Info label="Checklist Number" value={checklist.checklistNumber} />
             <Info label="Checklist Name" value={checklist.checklistName} />
-            <Info label="Checklist Mark" value={checklist.checklistMark ?? 1} />
+            <Info
+              label="Task Scoring"
+              value={markConfig.enableMark ? "Enabled" : "Disabled"}
+            />
+            <Info label="Score Setup" value={formatChecklistScoreLabel(checklist)} />
+            <Info
+              label="Base Mark"
+              value={markConfig.enableMark ? formatMarkValue(markConfig.baseMark) : "Not enabled"}
+            />
+            <Info
+              label="Delay Penalty / Day"
+              value={
+                markConfig.enableMark
+                  ? formatMarkValue(markConfig.delayPenaltyPerDay)
+                  : "Not enabled"
+              }
+            />
+            <Info
+              label="Advance Bonus / Day"
+              value={
+                markConfig.enableMark
+                  ? formatMarkValue(markConfig.advanceBonusPerDay)
+                  : "Not enabled"
+              }
+            />
             <Info
               label="Checklist Source Site"
               value={getChecklistSiteName(checklist.checklistSourceSite) || "-"}
             />
             <Info label="Assigned Employee" value={formatEmployeeLabel(checklist.assignedToEmployee)} />
+            <Info
+              label="Dependent Task"
+              value={checklist.isDependentTask ? "Yes" : "No"}
+            />
+            <Info
+              label="Previous Task Number"
+              value={
+                checklist.isDependentTask ? formatChecklistDependencyLabel(checklist) : "-"
+              }
+            />
+            <Info
+              label="Target Day Count"
+              value={
+                checklist.isDependentTask
+                  ? formatTargetDayCountLabel(checklist.targetDayCount)
+                  : "-"
+              }
+            />
             <Info
               label="Priority"
               value={
@@ -118,15 +175,15 @@ export default function ChecklistView() {
 
       <div className="card shadow-sm border-0 mb-3">
         <div className="card-body">
-          <h5 className="mb-3">Checklist Items</h5>
+          <h5 className="mb-3">Task Related Questions</h5>
 
           <div className="table-responsive">
             <table className="table table-bordered align-middle">
               <thead className="table-light">
                 <tr>
                   <th>#</th>
-                  <th>Item</th>
-                  <th>Detail</th>
+                  <th>Question</th>
+                  <th>Guidance</th>
                   <th>Required</th>
                 </tr>
               </thead>
@@ -143,7 +200,7 @@ export default function ChecklistView() {
                 ) : (
                   <tr>
                     <td colSpan="4" className="text-center">
-                      No checklist items configured
+                      No task related questions configured
                     </td>
                   </tr>
                 )}

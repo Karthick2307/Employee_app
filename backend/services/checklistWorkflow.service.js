@@ -1,14 +1,26 @@
 const Checklist = require("../models/Checklist");
 const ChecklistTask = require("../models/ChecklistTask");
+const ChecklistTransferHistory = require("../models/ChecklistTransferHistory");
 const Employee = require("../models/Employee");
 const Site = require("../models/Site");
 
 const SCHEDULE_TYPES = ["daily", "weekly", "monthly", "yearly", "custom"];
 const CUSTOM_REPEAT_UNITS = ["daily", "weekly", "monthly", "yearly"];
 const APPROVAL_HIERARCHIES = ["default", "custom"];
-const TASK_STATUSES = ["open", "submitted", "approved", "rejected"];
+const TASK_STATUSES = [
+  "waiting_dependency",
+  "open",
+  "submitted",
+  "nil_for_approval",
+  "approved",
+  "nil_approved",
+  "rejected",
+];
 const TASK_TIMELINESS_STATUSES = ["pending", "advanced", "on_time", "delay"];
+const SUBMISSION_TIMING_STATUSES = ["pending", "advance", "on_time", "delayed"];
 const APPROVAL_STEP_STATUSES = ["waiting", "pending", "approved", "rejected"];
+const DEPENDENCY_STATUSES = ["not_required", "waiting", "unlocked"];
+const TASK_COMPLETION_STATUSES = ["approved", "nil_approved"];
 const PRIORITY_LEVELS = ["high", "medium", "low"];
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -16,6 +28,7 @@ const schedulerIntervalMs = 60 * 1000;
 const maxOccurrencesPerRun = 366;
 const IST_OFFSET_MINUTES = 330;
 const IST_OFFSET_MS = IST_OFFSET_MINUTES * 60 * 1000;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 let schedulerTimer = null;
 let schedulerInFlight = false;
@@ -67,6 +80,14 @@ const checklistPopulateQuery = [
     path: "checklistSourceSite",
     select: "name companyName",
   },
+  {
+    path: "dependencyChecklistId",
+    select: "checklistNumber checklistName assignedToEmployee status",
+    populate: {
+      path: "assignedToEmployee",
+      select: "employeeCode employeeName",
+    },
+  },
 ];
 
 const checklistTaskPopulateQuery = [
@@ -91,6 +112,22 @@ const checklistTaskPopulateQuery = [
     path: "approvalSteps.approverEmployee",
     select: "employeeCode employeeName",
   },
+  {
+    path: "dependencyChecklistId",
+    select: "checklistNumber checklistName assignedToEmployee",
+    populate: {
+      path: "assignedToEmployee",
+      select: "employeeCode employeeName",
+    },
+  },
+  {
+    path: "dependencyTaskId",
+    select: "taskNumber checklistName assignedEmployee status completedAt",
+    populate: {
+      path: "assignedEmployee",
+      select: "employeeCode employeeName",
+    },
+  },
 ];
 
 const pad = (value) => String(value).padStart(2, "0");
@@ -110,7 +147,26 @@ const isAdminRequester = (user) => getRequesterRole(user) === "admin";
 
 const isEmployeeRequester = (user) => getRequesterRole(user) === "employee";
 
+const hasChecklistMasterAccess = (user) =>
+  isAdminRequester(user) ||
+  getRequesterRole(user) === "user" ||
+  Boolean(user?.checklistMasterAccess);
+
+const getRestrictedChecklistSiteId = (user) => {
+  if (!hasChecklistMasterAccess(user) || isAdminRequester(user) || isEmployeeRequester(user)) {
+    return "";
+  }
+
+  const siteId = normalizeText(user?.siteId);
+  return isValidObjectId(siteId) ? siteId : "";
+};
+
 const normalizeText = (value) => String(value || "").trim();
+
+const normalizeIdList = (value) =>
+  (Array.isArray(value) ? value : [value])
+    .map((item) => normalizeText(item?._id || item))
+    .filter(Boolean);
 
 const capitalize = (value) => {
   const normalized = normalizeText(value).toLowerCase();
@@ -149,6 +205,43 @@ const parseBoolean = (value, fallback = false) => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return fallback;
   return ["true", "1", "yes", "on"].includes(normalized);
+};
+
+const normalizeApprovalType = (value) =>
+  normalizeText(value).toLowerCase() === "nil" ? "nil" : "normal";
+
+const isNilChecklistTask = (value = {}) => {
+  const normalizedStatus = normalizeText(value?.status).toLowerCase();
+
+  return (
+    parseBoolean(value?.isNilApproval, false) ||
+    normalizeApprovalType(value?.approvalType) === "nil" ||
+    ["nil_for_approval", "nil_approved"].includes(normalizedStatus)
+  );
+};
+
+const applyNilTaskMarkState = (task) => {
+  task.approvalType = "nil";
+  task.isNilApproval = true;
+  task.enableMark = false;
+  task.baseMark = null;
+  task.delayPenaltyPerDay = null;
+  task.advanceBonusPerDay = null;
+  task.finalMark = 0;
+};
+
+const parseOptionalNumber = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
+
+const roundMarkValue = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) return null;
+  return Math.round(parsedValue * 100) / 100;
 };
 
 const parseJsonArray = (rawValue) => {
@@ -336,6 +429,80 @@ const compareIstCalendarDate = (leftValue, rightValue) => {
   return left.day - right.day;
 };
 
+const getIstDayDifference = (leftValue, rightValue) => {
+  if (!leftValue || !rightValue) return 0;
+
+  const left = getIstDateParts(leftValue);
+  const right = getIstDateParts(rightValue);
+  const leftDayStart = buildIstDateTime({
+    year: left.year,
+    monthIndex: left.monthIndex,
+    day: left.day,
+  });
+  const rightDayStart = buildIstDateTime({
+    year: right.year,
+    monthIndex: right.monthIndex,
+    day: right.day,
+  });
+
+  return Math.round((leftDayStart.getTime() - rightDayStart.getTime()) / DAY_IN_MS);
+};
+
+const normalizeSubmissionTimingStatus = (value) => {
+  const normalized = normalizeText(value).toLowerCase();
+
+  if (normalized === "advanced") return "advance";
+  if (normalized === "delay") return "delayed";
+  if (SUBMISSION_TIMING_STATUSES.includes(normalized)) return normalized;
+  return "pending";
+};
+
+const toLegacyTimelinessStatus = (value) => {
+  const normalized = normalizeSubmissionTimingStatus(value);
+
+  if (normalized === "advance") return "advanced";
+  if (normalized === "delayed") return "delay";
+  return normalized;
+};
+
+const getTaskTargetDateTime = (source = {}) =>
+  source?.dependencyTargetDateTime || source?.targetDateTime || source?.endDateTime || null;
+
+const getSubmissionTimingStatus = ({
+  submittedAt,
+  targetDateTime,
+  dependencyTargetDateTime,
+  endDateTime,
+}) => {
+  const resolvedTargetDateTime =
+    targetDateTime || dependencyTargetDateTime || endDateTime || null;
+
+  if (!submittedAt || !resolvedTargetDateTime) return "pending";
+
+  const dayComparison = compareIstCalendarDate(submittedAt, resolvedTargetDateTime);
+  if (dayComparison < 0) return "advance";
+  if (dayComparison > 0) return "delayed";
+
+  return new Date(submittedAt).getTime() <= new Date(resolvedTargetDateTime).getTime()
+    ? "on_time"
+    : "delayed";
+};
+
+const buildDependencyTargetDateTime = (dependencyCompletedAt, targetDayCount) => {
+  const completedAtDate = dependencyCompletedAt ? new Date(dependencyCompletedAt) : null;
+  const normalizedTargetDayCount = parseOptionalNumber(targetDayCount);
+
+  if (
+    !completedAtDate ||
+    Number.isNaN(completedAtDate.getTime()) ||
+    normalizedTargetDayCount === null
+  ) {
+    return null;
+  }
+
+  return new Date(completedAtDate.getTime() + normalizedTargetDayCount * DAY_IN_MS);
+};
+
 const buildOccurrenceKey = (dateValue) => {
   const date = getIstDateParts(dateValue);
   return [
@@ -347,8 +514,179 @@ const buildOccurrenceKey = (dateValue) => {
   ].join("");
 };
 
+const buildTaskNumberFromOccurrenceKey = (checklistNumber, occurrenceKey) =>
+  `${normalizeText(checklistNumber)}-${normalizeText(occurrenceKey)}`;
+
 const buildTaskNumber = (checklistNumber, dateValue) =>
-  `${normalizeText(checklistNumber)}-${buildOccurrenceKey(dateValue)}`;
+  buildTaskNumberFromOccurrenceKey(checklistNumber, buildOccurrenceKey(dateValue));
+
+const buildDependencyOccurrenceKey = (dependencyTask) => {
+  const dependencyTaskId = normalizeText(dependencyTask?._id).slice(-6).toUpperCase();
+  const sourceDate =
+    dependencyTask?.completedAt || dependencyTask?.occurrenceDate || new Date();
+  const baseKey = buildOccurrenceKey(sourceDate);
+
+  return dependencyTaskId ? `DEP${baseKey}-${dependencyTaskId}` : `DEP${baseKey}`;
+};
+
+const buildDependentTaskNumber = (checklistNumber, dependencyTask) =>
+  buildTaskNumberFromOccurrenceKey(
+    checklistNumber,
+    buildDependencyOccurrenceKey(dependencyTask)
+  );
+
+const getTemporaryTransferChecklistIds = (transfer) =>
+  normalizeIdList((transfer?.checklists || []).map((row) => row?.checklist));
+
+const applyTemporaryTransferActivation = async (transfer, now) => {
+  const checklistIds = getTemporaryTransferChecklistIds(transfer);
+  const transferStartDate = transfer?.transferStartDate || null;
+  const transferEndDate = transfer?.transferEndDate || null;
+
+  if (!checklistIds.length || !transferStartDate || !transferEndDate) {
+    await ChecklistTransferHistory.updateOne(
+      { _id: transfer._id },
+      {
+        $set: {
+          transferStatus: "completed",
+          revertedAt: now,
+        },
+      }
+    );
+    return;
+  }
+
+  await Checklist.updateMany(
+    {
+      _id: { $in: checklistIds },
+      assignedToEmployee: transfer.fromEmployee,
+    },
+    {
+      $set: {
+        assignedToEmployee: transfer.toEmployee,
+      },
+    }
+  );
+
+  await ChecklistTask.updateMany(
+    {
+      checklist: { $in: checklistIds },
+      occurrenceDate: {
+        $gte: transferStartDate,
+        $lte: transferEndDate,
+      },
+      completedAt: null,
+      assignedEmployee: transfer.fromEmployee,
+    },
+    {
+      $set: {
+        assignedEmployee: transfer.toEmployee,
+      },
+    }
+  );
+
+  await ChecklistTransferHistory.updateOne(
+    { _id: transfer._id },
+    {
+      $set: {
+        transferStatus: "active",
+        activatedAt: transfer.activatedAt || now,
+        revertedAt: null,
+      },
+    }
+  );
+};
+
+const applyTemporaryTransferRevert = async (transfer, now) => {
+  const checklistIds = getTemporaryTransferChecklistIds(transfer);
+  const transferStartDate = transfer?.transferStartDate || null;
+  const transferEndDate = transfer?.transferEndDate || null;
+
+  if (checklistIds.length) {
+    await Checklist.updateMany(
+      {
+        _id: { $in: checklistIds },
+        assignedToEmployee: transfer.toEmployee,
+      },
+      {
+        $set: {
+          assignedToEmployee: transfer.fromEmployee,
+        },
+      }
+    );
+
+    if (transferStartDate && transferEndDate) {
+      await ChecklistTask.updateMany(
+        {
+          checklist: { $in: checklistIds },
+          occurrenceDate: {
+            $gte: transferStartDate,
+            $lte: transferEndDate,
+          },
+          completedAt: null,
+          assignedEmployee: transfer.toEmployee,
+        },
+        {
+          $set: {
+            assignedEmployee: transfer.fromEmployee,
+          },
+        }
+      );
+    }
+  }
+
+  await ChecklistTransferHistory.updateOne(
+    { _id: transfer._id },
+    {
+      $set: {
+        transferStatus: "completed",
+        revertedAt: now,
+      },
+    }
+  );
+};
+
+const processTemporaryChecklistTransfers = async (now = new Date()) => {
+  const transfers = await ChecklistTransferHistory.find(
+    {
+      transferType: "temporary",
+      transferStatus: { $in: ["pending", "active"] },
+    },
+    [
+      "_id",
+      "transferStatus",
+      "fromEmployee",
+      "toEmployee",
+      "transferStartDate",
+      "transferEndDate",
+      "activatedAt",
+      "checklists",
+    ].join(" ")
+  ).lean();
+
+  for (const transfer of transfers) {
+    const transferStartDate = transfer?.transferStartDate
+      ? new Date(transfer.transferStartDate)
+      : null;
+    const transferEndDate = transfer?.transferEndDate
+      ? new Date(transfer.transferEndDate)
+      : null;
+
+    if (!transferStartDate || !transferEndDate) {
+      await applyTemporaryTransferRevert(transfer, now);
+      continue;
+    }
+
+    if (transferEndDate < now) {
+      await applyTemporaryTransferRevert(transfer, now);
+      continue;
+    }
+
+    if (transferStartDate <= now && transferEndDate >= now) {
+      await applyTemporaryTransferActivation(transfer, now);
+    }
+  }
+};
 
 const getChecklistWindowMs = (checklist) => {
   const scheduledStart = combineDateAndTime(checklist.startDate, checklist.scheduleTime);
@@ -363,17 +701,80 @@ const buildTaskEndDateTime = (checklist, occurrenceDate) => {
   return new Date(new Date(occurrenceDate).getTime() + durationMs);
 };
 
-const getTaskTimelinessStatus = ({ submittedAt, endDateTime }) => {
-  if (!submittedAt || !endDateTime) return "pending";
+const resolveMarkConfig = (source = {}) => {
+  if (isNilChecklistTask(source)) {
+    return {
+      enableMark: false,
+      baseMark: null,
+      delayPenaltyPerDay: null,
+      advanceBonusPerDay: null,
+    };
+  }
 
-  const dayComparison = compareIstCalendarDate(submittedAt, endDateTime);
-  if (dayComparison < 0) return "advanced";
-  if (dayComparison > 0) return "delay";
+  const explicitEnableMark =
+    typeof source?.enableMark === "boolean" ? source.enableMark : null;
+  const configuredBaseMark = parseOptionalNumber(source?.baseMark);
+  const legacyChecklistMark = parseOptionalNumber(source?.checklistMark);
+  const baseMark = configuredBaseMark ?? legacyChecklistMark;
+  const enableMark =
+    explicitEnableMark !== null ? explicitEnableMark && baseMark !== null : baseMark !== null;
 
-  return new Date(submittedAt).getTime() <= new Date(endDateTime).getTime()
-    ? "on_time"
-    : "delay";
+  if (!enableMark || baseMark === null) {
+    return {
+      enableMark: false,
+      baseMark: null,
+      delayPenaltyPerDay: null,
+      advanceBonusPerDay: null,
+    };
+  }
+
+  return {
+    enableMark: true,
+    baseMark: roundMarkValue(baseMark),
+    delayPenaltyPerDay: roundMarkValue(
+      parseOptionalNumber(source?.delayPenaltyPerDay) ?? 0.5
+    ),
+    advanceBonusPerDay: roundMarkValue(
+      parseOptionalNumber(source?.advanceBonusPerDay) ?? 0.5
+    ),
+  };
 };
+
+const calculateTaskMark = ({
+  submittedAt,
+  targetDateTime,
+  dependencyTargetDateTime,
+  endDateTime,
+  enableMark,
+  baseMark,
+  delayPenaltyPerDay,
+  advanceBonusPerDay,
+}) => {
+  const resolvedTargetDateTime =
+    targetDateTime || dependencyTargetDateTime || endDateTime || null;
+
+  if (!enableMark || baseMark === null || !submittedAt || !resolvedTargetDateTime) {
+    return {
+      finalMark: null,
+    };
+  }
+
+  const dayDifference = getIstDayDifference(submittedAt, resolvedTargetDateTime);
+  const isSameDayLate =
+    dayDifference === 0 &&
+    new Date(submittedAt).getTime() > new Date(resolvedTargetDateTime).getTime();
+  const delayDays = Math.max(0, dayDifference) + (isSameDayLate ? 1 : 0);
+  const advanceDays = Math.max(0, dayDifference * -1);
+  const adjustment =
+    advanceDays * (advanceBonusPerDay || 0) - delayDays * (delayPenaltyPerDay || 0);
+
+  return {
+    finalMark: roundMarkValue(Math.max(0, baseMark + adjustment)),
+  };
+};
+
+const getTaskTimelinessStatus = (value = {}) =>
+  toLegacyTimelinessStatus(getSubmissionTimingStatus(value));
 
 const buildChecklistNumberPrefix = (siteName) => {
   const tokens =
@@ -682,6 +1083,9 @@ const buildTaskItemsFromChecklist = (checklist) =>
     label: item.label,
     detail: item.detail || "",
     isRequired: item.isRequired !== false,
+    answer: "",
+    employeeAnswerRemark: "",
+    superiorAnswerRemark: "",
     verified: false,
     remarks: "",
   }));
@@ -694,6 +1098,292 @@ const buildApprovalStepsFromChecklist = (checklist) =>
     remarks: "",
     actedAt: null,
   }));
+
+const getDependentTaskTriggerStart = (checklist) =>
+  combineDateAndTime(checklist?.startDate, checklist?.scheduleTime) ||
+  (checklist?.startDate ? new Date(checklist.startDate) : null);
+
+const findCompletedDependencyTasks = async ({
+  checklist,
+  dependencyTaskIds = [],
+}) => {
+  const dependencyChecklistId = getChecklistDependencyId(checklist);
+  if (!isValidObjectId(dependencyChecklistId)) {
+    return [];
+  }
+
+  const filter = {
+    checklist: dependencyChecklistId,
+    status: { $in: TASK_COMPLETION_STATUSES },
+    completedAt: { $ne: null },
+  };
+  const normalizedDependencyTaskIds = normalizeIdList(dependencyTaskIds);
+  const triggerStart = getDependentTaskTriggerStart(checklist);
+
+  if (normalizedDependencyTaskIds.length) {
+    filter._id = { $in: normalizedDependencyTaskIds };
+  }
+
+  if (triggerStart) {
+    filter.completedAt.$gte = triggerStart;
+  }
+
+  return ChecklistTask.find(
+    filter,
+    "_id taskNumber checklist checklistNumber checklistName completedAt occurrenceDate"
+  )
+    .sort({ completedAt: 1, occurrenceDate: 1, createdAt: 1 })
+    .lean();
+};
+
+const createDependentChecklistTask = async ({
+  checklist,
+  dependencyTask,
+}) => {
+  const dependencyTaskId = normalizeText(dependencyTask?._id);
+  if (!isValidObjectId(dependencyTaskId)) {
+    return 0;
+  }
+
+  const existingTask = await ChecklistTask.findOne(
+    {
+      checklist: checklist._id,
+      dependencyTaskId,
+    },
+    "_id"
+  ).lean();
+
+  if (existingTask) {
+    return 0;
+  }
+
+  const dependencyCompletedAt = dependencyTask?.completedAt
+    ? new Date(dependencyTask.completedAt)
+    : null;
+  const dependencyTriggeredAt = dependencyCompletedAt || new Date();
+  const dependencyTargetDateTime = buildDependencyTargetDateTime(
+    dependencyCompletedAt,
+    checklist?.targetDayCount
+  );
+  const markConfig = resolveMarkConfig(checklist);
+  const occurrenceKey = buildDependencyOccurrenceKey(dependencyTask);
+
+  const taskPayload = {
+    taskNumber: buildDependentTaskNumber(checklist.checklistNumber, dependencyTask),
+    checklist: checklist._id,
+    checklistNumber: checklist.checklistNumber,
+    checklistName: checklist.checklistName,
+    scheduleType: checklist.scheduleType,
+    repeatSummary: checklist.repeatSummary || "",
+    priority: checklist.priority || "medium",
+    occurrenceDate: dependencyTriggeredAt,
+    occurrenceKey,
+    endDateTime: dependencyTargetDateTime,
+    enableMark: markConfig.enableMark,
+    baseMark: markConfig.baseMark,
+    delayPenaltyPerDay: markConfig.delayPenaltyPerDay,
+    advanceBonusPerDay: markConfig.advanceBonusPerDay,
+    finalMark: null,
+    approvalType: "normal",
+    isNilApproval: false,
+    assignedEmployee: checklist.assignedToEmployee,
+    isDependentTask: true,
+    dependencyChecklistId: checklist.dependencyChecklistId,
+    dependencyChecklistNumber: normalizeText(
+      checklist.dependencyTaskNumber || dependencyTask?.checklistNumber
+    ),
+    dependencyTaskId: dependencyTask._id,
+    dependencyTaskNumber: normalizeText(dependencyTask?.taskNumber),
+    targetDayCount: roundMarkValue(checklist?.targetDayCount),
+    dependencyCompletedAt,
+    dependencyTargetDateTime,
+    autoCreatedFromDependency: true,
+    dependencyTriggeredAt,
+    dependencyStatus: "unlocked",
+    unlockedAt: dependencyCompletedAt,
+    currentApprovalEmployee: null,
+    status: "open",
+    checklistItems: buildTaskItemsFromChecklist(checklist),
+    employeeRemarks: "",
+    employeeAttachments: [],
+    submittedAt: null,
+    timelinessStatus: "pending",
+    submissionTimingStatus: "pending",
+    approvalSteps: buildApprovalStepsFromChecklist(checklist),
+    completedAt: null,
+  };
+
+  try {
+    await ChecklistTask.create(taskPayload);
+    await Checklist.updateOne(
+      { _id: checklist._id },
+      {
+        $set: {
+          lastGeneratedAt: dependencyTriggeredAt,
+          nextOccurrenceAt: null,
+        },
+      }
+    );
+    return 1;
+  } catch (err) {
+    if (err?.code === 11000) return 0;
+    throw err;
+  }
+};
+
+const runDependentChecklistScheduler = async ({
+  checklistIds = [],
+  dependencyChecklistIds = [],
+  dependencyTaskIds = [],
+} = {}) => {
+  const normalizedChecklistIds = normalizeIdList(checklistIds);
+  const normalizedDependencyChecklistIds = normalizeIdList(dependencyChecklistIds);
+  const normalizedDependencyTaskIds = normalizeIdList(dependencyTaskIds);
+  const filter = {
+    status: true,
+    isDependentTask: true,
+    dependencyChecklistId: { $ne: null },
+    targetDayCount: { $gt: 0 },
+  };
+
+  if (normalizedChecklistIds.length && normalizedDependencyChecklistIds.length) {
+    filter.$or = [
+      { _id: { $in: normalizedChecklistIds } },
+      { dependencyChecklistId: { $in: normalizedDependencyChecklistIds } },
+    ];
+  } else if (normalizedChecklistIds.length) {
+    filter._id = { $in: normalizedChecklistIds };
+  } else if (normalizedDependencyChecklistIds.length) {
+    filter.dependencyChecklistId = { $in: normalizedDependencyChecklistIds };
+  }
+
+  const checklists = await Checklist.find(filter);
+  let created = 0;
+
+  for (const checklist of checklists) {
+    const dependencyTasks = await findCompletedDependencyTasks({
+      checklist,
+      dependencyTaskIds: normalizedDependencyTaskIds,
+    });
+
+    for (const dependencyTask of dependencyTasks) {
+      created += await createDependentChecklistTask({
+        checklist,
+        dependencyTask,
+      });
+    }
+  }
+
+  return {
+    processed: checklists.length,
+    created,
+  };
+};
+
+const getChecklistDependencyId = (value) =>
+  normalizeText(value?.dependencyChecklistId?._id || value?.dependencyChecklistId);
+
+const getChecklistDependencyNumber = (value) =>
+  normalizeText(value?.dependencyChecklistNumber || value?.dependencyTaskNumber);
+
+const isDependencyUnlocked = (task) =>
+  TASK_COMPLETION_STATUSES.includes(normalizeText(task?.status).toLowerCase());
+
+const getDependencyBlockedMessage = (task) => {
+  const dependencyReference =
+    normalizeText(task?.dependencyTaskNumber) ||
+    getChecklistDependencyNumber(task) ||
+    normalizeText(task?.dependencyTaskId?.taskNumber) ||
+    normalizeText(task?.dependencyChecklistId?.checklistNumber);
+
+  return dependencyReference
+    ? `Waiting for Previous Task Completion (${dependencyReference})`
+    : "Waiting for Previous Task Completion";
+};
+
+const resolveDependencyTaskForOccurrence = async ({
+  dependencyChecklistId,
+  occurrenceDate,
+  excludeTaskId = "",
+}) => {
+  const normalizedDependencyChecklistId = normalizeText(dependencyChecklistId);
+  if (!isValidObjectId(normalizedDependencyChecklistId) || !occurrenceDate) {
+    return null;
+  }
+
+  const filter = {
+    checklist: normalizedDependencyChecklistId,
+    occurrenceDate: { $lte: new Date(occurrenceDate) },
+  };
+
+  if (isValidObjectId(excludeTaskId)) {
+    filter._id = { $ne: excludeTaskId };
+  }
+
+  return ChecklistTask.findOne(
+    filter,
+    "_id taskNumber checklistName status completedAt occurrenceDate"
+  )
+    .sort({ occurrenceDate: -1, createdAt: -1 })
+    .lean();
+};
+
+const buildTaskDependencyState = async ({
+  checklist,
+  occurrenceDate,
+  existingTask = null,
+}) => {
+  const isDependentTask = parseBoolean(checklist?.isDependentTask, false);
+  const dependencyChecklistId = getChecklistDependencyId(checklist);
+  const dependencyChecklistNumber =
+    normalizeText(checklist?.dependencyTaskNumber) ||
+    normalizeText(checklist?.dependencyChecklistId?.checklistNumber);
+
+  if (!isDependentTask || !isValidObjectId(dependencyChecklistId)) {
+    return {
+      isDependentTask: false,
+      dependencyChecklistId: null,
+      dependencyChecklistNumber: "",
+      dependencyTaskId: null,
+      dependencyTaskNumber: "",
+      dependencyStatus: "not_required",
+      unlockedAt: null,
+      status: "open",
+    };
+  }
+
+  const dependencyTask = await resolveDependencyTaskForOccurrence({
+    dependencyChecklistId,
+    occurrenceDate,
+    excludeTaskId: existingTask?._id,
+  });
+  const dependencyComplete = isDependencyUnlocked(dependencyTask);
+
+  return {
+    isDependentTask: true,
+    dependencyChecklistId,
+    dependencyChecklistNumber,
+    dependencyTaskId: dependencyTask?._id || null,
+    dependencyTaskNumber: normalizeText(dependencyTask?.taskNumber),
+    dependencyStatus: dependencyComplete ? "unlocked" : "waiting",
+    unlockedAt: dependencyComplete ? existingTask?.unlockedAt || new Date() : null,
+    status: dependencyComplete ? "open" : "waiting_dependency",
+  };
+};
+
+const applyTaskDependencyState = (task, dependencyState = {}) => {
+  task.isDependentTask = dependencyState.isDependentTask === true;
+  task.dependencyChecklistId = dependencyState.dependencyChecklistId || null;
+  task.dependencyChecklistNumber = dependencyState.dependencyChecklistNumber || "";
+  task.dependencyTaskId = dependencyState.dependencyTaskId || null;
+  task.dependencyTaskNumber = dependencyState.dependencyTaskNumber || "";
+  task.dependencyStatus = DEPENDENCY_STATUSES.includes(dependencyState.dependencyStatus)
+    ? dependencyState.dependencyStatus
+    : "not_required";
+  task.unlockedAt = dependencyState.unlockedAt || null;
+  task.status =
+    TASK_STATUSES.includes(dependencyState.status) ? dependencyState.status : task.status;
+};
 
 const parseChecklistItems = (rawValue) =>
   parseJsonArray(rawValue)
@@ -826,17 +1516,28 @@ const getNextChecklistNumberValue = async (siteId) => {
   return `${prefix} - ${String(maxSequence + 1).padStart(3, "0")}`;
 };
 
-const validateChecklistPayload = async ({ body }) => {
+const validateChecklistPayload = async ({ body, requesterSiteId = "" }) => {
+  const currentChecklistId = normalizeText(body.currentChecklistId || body._id || body.id);
   const checklistName = normalizeText(body.checklistName);
-  const checklistMark =
-    body.checklistMark === undefined || body.checklistMark === null || body.checklistMark === ""
-      ? 1
-      : Number(body.checklistMark);
+  const enableMark =
+    body.enableMark === undefined
+      ? parseOptionalNumber(body.baseMark ?? body.checklistMark) !== null
+      : parseBoolean(body.enableMark, false);
+  const baseMark = parseOptionalNumber(body.baseMark ?? body.checklistMark);
+  const delayPenaltyPerDay = parseOptionalNumber(body.delayPenaltyPerDay);
+  const advanceBonusPerDay = parseOptionalNumber(body.advanceBonusPerDay);
   const checklistSourceSite = normalizeText(body.checklistSourceSite);
   const assignedToEmployee = normalizeText(body.assignedToEmployee);
   const employeeAssignedSite = normalizeText(body.employeeAssignedSite);
   const scheduleType = normalizeText(body.scheduleType).toLowerCase();
   const priority = normalizeText(body.priority).toLowerCase() || "medium";
+  const isDependentTask = parseBoolean(body.isDependentTask, false);
+  const dependencyChecklistId = normalizeText(
+    body.dependencyChecklistId || body.dependencyTaskId || body.oldTaskNumber
+  );
+  const targetDayCount = parseOptionalNumber(
+    body.targetDayCount ?? body.targetDays ?? body.targetDay
+  );
   const startDate = parseDateInput(body.startDate);
   const scheduleTime = normalizeTimeInput(body.scheduleTime);
   const endDate = parseDateInput(body.endDate);
@@ -847,6 +1548,7 @@ const validateChecklistPayload = async ({ body }) => {
   const repeatDayOfWeek = getWeekDayLabel(body.repeatDayOfWeek);
   const repeatMonthOfYear = Number(body.repeatMonthOfYear || 0) || null;
   const checklistItems = parseChecklistItems(body.checklistItems);
+  const normalizedRequesterSiteId = normalizeText(requesterSiteId);
 
   if (
     !checklistName ||
@@ -873,8 +1575,43 @@ const validateChecklistPayload = async ({ body }) => {
     return { message: "Invalid checklist priority", status: 400 };
   }
 
-  if (!Number.isInteger(checklistMark) || checklistMark < 1 || checklistMark > 10) {
-    return { message: "Checklist mark must be a whole number between 1 and 10", status: 400 };
+  if (isDependentTask && !dependencyChecklistId) {
+    return {
+      message: "Old Task Number / Previous Task Number is required when Dependent Task is Yes",
+      status: 400,
+    };
+  }
+
+  if (isDependentTask && (targetDayCount === null || targetDayCount <= 0)) {
+    return {
+      message: "Target Day Count is required and must be greater than 0",
+      status: 400,
+    };
+  }
+
+  if (dependencyChecklistId && !isValidObjectId(dependencyChecklistId)) {
+    return { message: "Selected previous task is invalid", status: 400 };
+  }
+
+  if (
+    isDependentTask &&
+    currentChecklistId &&
+    isValidObjectId(currentChecklistId) &&
+    dependencyChecklistId === currentChecklistId
+  ) {
+    return { message: "The same task cannot depend on itself", status: 400 };
+  }
+
+  if (enableMark && (baseMark === null || baseMark < 0)) {
+    return { message: "Base mark is required when task scoring is enabled", status: 400 };
+  }
+
+  if (enableMark && delayPenaltyPerDay !== null && delayPenaltyPerDay < 0) {
+    return { message: "Delay penalty per day cannot be negative", status: 400 };
+  }
+
+  if (enableMark && advanceBonusPerDay !== null && advanceBonusPerDay < 0) {
+    return { message: "Advance bonus per day cannot be negative", status: 400 };
   }
 
   if (
@@ -923,7 +1660,7 @@ const validateChecklistPayload = async ({ body }) => {
 
   if (!checklistItems.length) {
     return {
-      message: "Add at least one checklist item so the employee can verify the task",
+      message: "Add at least one task related question so the employee can submit an answer",
       status: 400,
     };
   }
@@ -945,10 +1682,16 @@ const validateChecklistPayload = async ({ body }) => {
     return { message: "Selected checklist source site is invalid", status: 400 };
   }
 
-  const [assignedSite, sourceSite] = await Promise.all([
+  const [assignedSite, sourceSite, dependencyChecklist] = await Promise.all([
     Site.findById(employeeAssignedSite, "name companyName").lean(),
     checklistSourceSite
       ? Site.findById(checklistSourceSite, "name companyName").lean()
+      : Promise.resolve(null),
+    isDependentTask
+      ? Checklist.findById(
+          dependencyChecklistId,
+          "checklistNumber checklistName employeeAssignedSite"
+        ).lean()
       : Promise.resolve(null),
   ]);
 
@@ -960,10 +1703,32 @@ const validateChecklistPayload = async ({ body }) => {
     return { message: "Selected checklist source site was not found", status: 400 };
   }
 
+  if (isDependentTask && !dependencyChecklist) {
+    return { message: "Selected previous task was not found", status: 400 };
+  }
+
   if (!employeeHasSite(assignedEmployee, employeeAssignedSite)) {
     return {
       message: "Selected employee is not mapped to the selected assigned site",
       status: 400,
+    };
+  }
+
+  if (normalizedRequesterSiteId && String(employeeAssignedSite) !== normalizedRequesterSiteId) {
+    return {
+      message: "You can only create checklists for your assigned site",
+      status: 403,
+    };
+  }
+
+  if (
+    normalizedRequesterSiteId &&
+    isDependentTask &&
+    String(dependencyChecklist?.employeeAssignedSite || "") !== normalizedRequesterSiteId
+  ) {
+    return {
+      message: "You can only map dependent tasks within your assigned site",
+      status: 403,
     };
   }
 
@@ -1009,12 +1774,26 @@ const validateChecklistPayload = async ({ body }) => {
     payload: {
       checklistNumber,
       checklistName,
-      checklistMark,
+      checklistMark: 1,
+      enableMark,
+      baseMark: enableMark ? roundMarkValue(baseMark) : null,
+      delayPenaltyPerDay: enableMark
+        ? roundMarkValue(delayPenaltyPerDay ?? 0.5)
+        : null,
+      advanceBonusPerDay: enableMark
+        ? roundMarkValue(advanceBonusPerDay ?? 0.5)
+        : null,
       checklistSourceSite: checklistSourceSite || null,
       assignedToEmployee,
       employeeAssignedSite: employeeAssignedSite || null,
       scheduleType,
       priority,
+      isDependentTask,
+      dependencyChecklistId: isDependentTask ? dependencyChecklist._id : null,
+      dependencyTaskNumber: isDependentTask
+        ? normalizeText(dependencyChecklist?.checklistNumber)
+        : "",
+      targetDayCount: isDependentTask ? roundMarkValue(targetDayCount) : null,
       startDate: scheduledStart,
       scheduleTime,
       endDate: scheduledEnd,
@@ -1038,7 +1817,16 @@ const validateChecklistPayload = async ({ body }) => {
 };
 
 const createChecklistTask = async (checklist, occurrenceDate) => {
+  if (parseBoolean(checklist?.isDependentTask, false)) {
+    return 0;
+  }
+
   const endDateTime = buildTaskEndDateTime(checklist, occurrenceDate);
+  const markConfig = resolveMarkConfig(checklist);
+  const dependencyState = await buildTaskDependencyState({
+    checklist,
+    occurrenceDate,
+  });
   const taskPayload = {
     taskNumber: buildTaskNumber(checklist.checklistNumber, occurrenceDate),
     checklist: checklist._id,
@@ -1050,14 +1838,34 @@ const createChecklistTask = async (checklist, occurrenceDate) => {
     occurrenceDate,
     occurrenceKey: buildOccurrenceKey(occurrenceDate),
     endDateTime,
+    enableMark: markConfig.enableMark,
+    baseMark: markConfig.baseMark,
+    delayPenaltyPerDay: markConfig.delayPenaltyPerDay,
+    advanceBonusPerDay: markConfig.advanceBonusPerDay,
+    finalMark: null,
+    approvalType: "normal",
+    isNilApproval: false,
     assignedEmployee: checklist.assignedToEmployee,
     currentApprovalEmployee: null,
-    status: "open",
+    isDependentTask: dependencyState.isDependentTask,
+    dependencyChecklistId: dependencyState.dependencyChecklistId,
+    dependencyChecklistNumber: dependencyState.dependencyChecklistNumber,
+    dependencyTaskId: dependencyState.dependencyTaskId,
+    dependencyTaskNumber: dependencyState.dependencyTaskNumber,
+    targetDayCount: null,
+    dependencyCompletedAt: null,
+    dependencyTargetDateTime: null,
+    autoCreatedFromDependency: false,
+    dependencyTriggeredAt: null,
+    dependencyStatus: dependencyState.dependencyStatus,
+    unlockedAt: dependencyState.unlockedAt,
+    status: dependencyState.status,
     checklistItems: buildTaskItemsFromChecklist(checklist),
     employeeRemarks: "",
     employeeAttachments: [],
     submittedAt: null,
     timelinessStatus: "pending",
+    submissionTimingStatus: "pending",
     approvalSteps: buildApprovalStepsFromChecklist(checklist),
     completedAt: null,
   };
@@ -1071,6 +1879,108 @@ const createChecklistTask = async (checklist, occurrenceDate) => {
   }
 };
 
+const syncChecklistTaskDependencies = async ({
+  checklistIds = [],
+  dependencyChecklistIds = [],
+} = {}) => {
+  const normalizedChecklistIds = normalizeIdList(checklistIds);
+  const normalizedDependencyChecklistIds = normalizeIdList(dependencyChecklistIds);
+  const filter = {
+    status: { $in: ["open", "waiting_dependency"] },
+  };
+
+  if (!normalizedChecklistIds.length && !normalizedDependencyChecklistIds.length) {
+    return { updated: 0 };
+  }
+
+  filter.$or = [];
+
+  if (normalizedChecklistIds.length) {
+    filter.$or.push({ checklist: { $in: normalizedChecklistIds } });
+  }
+
+  if (normalizedDependencyChecklistIds.length) {
+    filter.$or.push({ dependencyChecklistId: { $in: normalizedDependencyChecklistIds } });
+  }
+
+  const tasks = await ChecklistTask.find(
+    filter,
+    [
+      "_id",
+      "checklist",
+      "occurrenceDate",
+      "status",
+      "isDependentTask",
+      "dependencyChecklistId",
+      "dependencyChecklistNumber",
+      "dependencyTaskId",
+      "dependencyTaskNumber",
+      "dependencyStatus",
+      "unlockedAt",
+    ].join(" ")
+  );
+
+  if (!tasks.length) {
+    return { updated: 0 };
+  }
+
+  const checklistMap = new Map();
+  const taskChecklistIds = [
+    ...new Set(
+      tasks.map((task) => normalizeText(task.checklist)).filter(Boolean)
+    ),
+  ];
+
+  if (taskChecklistIds.length) {
+    const checklistRows = await Checklist.find(
+      { _id: { $in: taskChecklistIds } },
+      "_id isDependentTask dependencyChecklistId dependencyTaskNumber"
+    ).lean();
+
+    checklistRows.forEach((checklist) => {
+      checklistMap.set(normalizeText(checklist._id), checklist);
+    });
+  }
+
+  let updated = 0;
+
+  for (const task of tasks) {
+    const checklist = checklistMap.get(normalizeText(task.checklist));
+    if (!checklist) continue;
+
+    const dependencyState = await buildTaskDependencyState({
+      checklist,
+      occurrenceDate: task.occurrenceDate,
+      existingTask: task,
+    });
+
+    const currentDependencyChecklistId = normalizeText(task.dependencyChecklistId);
+    const currentDependencyTaskId = normalizeText(task.dependencyTaskId);
+    const nextDependencyChecklistId = normalizeText(dependencyState.dependencyChecklistId);
+    const nextDependencyTaskId = normalizeText(dependencyState.dependencyTaskId);
+    const shouldUpdate =
+      task.isDependentTask !== dependencyState.isDependentTask ||
+      currentDependencyChecklistId !== nextDependencyChecklistId ||
+      normalizeText(task.dependencyChecklistNumber) !==
+        normalizeText(dependencyState.dependencyChecklistNumber) ||
+      currentDependencyTaskId !== nextDependencyTaskId ||
+      normalizeText(task.dependencyTaskNumber) !==
+        normalizeText(dependencyState.dependencyTaskNumber) ||
+      normalizeText(task.dependencyStatus) !==
+        normalizeText(dependencyState.dependencyStatus) ||
+      normalizeText(task.status) !== normalizeText(dependencyState.status) ||
+      Boolean(task.unlockedAt) !== Boolean(dependencyState.unlockedAt);
+
+    if (!shouldUpdate) continue;
+
+    applyTaskDependencyState(task, dependencyState);
+    await task.save();
+    updated += 1;
+  }
+
+  return { updated };
+};
+
 const runChecklistScheduler = async ({ checklistIds = [] } = {}) => {
   if (schedulerInFlight) {
     return { processed: 0, created: 0, skipped: true };
@@ -1079,8 +1989,12 @@ const runChecklistScheduler = async ({ checklistIds = [] } = {}) => {
   schedulerInFlight = true;
 
   try {
+    const now = new Date();
+    await processTemporaryChecklistTransfers(now);
+
     const filter = {
       status: true,
+      isDependentTask: { $ne: true },
       scheduleType: { $in: SCHEDULE_TYPES },
       startDate: { $ne: null },
       scheduleTime: { $ne: "" },
@@ -1091,7 +2005,6 @@ const runChecklistScheduler = async ({ checklistIds = [] } = {}) => {
     }
 
     const checklists = await Checklist.find(filter);
-    const now = new Date();
     let created = 0;
 
     for (const checklist of checklists) {
@@ -1112,9 +2025,19 @@ const runChecklistScheduler = async ({ checklistIds = [] } = {}) => {
       await checklist.save();
     }
 
+    await syncChecklistTaskDependencies({
+      checklistIds: checklists.map((checklist) => checklist._id),
+      dependencyChecklistIds: checklists.map((checklist) => checklist._id),
+    });
+
+    const dependencySchedulerResult = await runDependentChecklistScheduler({
+      checklistIds,
+      dependencyChecklistIds: checklistIds,
+    });
+
     return {
-      processed: checklists.length,
-      created,
+      processed: checklists.length + Number(dependencySchedulerResult?.processed || 0),
+      created: created + Number(dependencySchedulerResult?.created || 0),
       skipped: false,
     };
   } finally {
@@ -1142,10 +2065,20 @@ const parseTaskItemResponses = (rawValue) =>
   parseJsonArray(rawValue).map((item) => ({
     checklistItemId: normalizeText(item?.checklistItemId || item?.id),
     verified: parseBoolean(item?.verified, false),
-    remarks: normalizeText(item?.remarks),
+    employeeAnswerRemark: normalizeText(
+      item?.employeeAnswerRemark || item?.answer || item?.remarks || item?.response
+    ),
+    superiorAnswerRemark: normalizeText(
+      item?.superiorAnswerRemark ||
+        item?.superiorAnswer ||
+        item?.headAnswerRemark ||
+        item?.headAnswer ||
+        item?.superiorRemark
+    ),
   }));
 
 const applyTaskSubmission = ({ task, body, files = [] }) => {
+  const submissionType = normalizeApprovalType(body?.submissionType || body?.approvalType);
   const responses = parseTaskItemResponses(body.itemResponses);
   const responseMap = new Map(
     responses
@@ -1155,21 +2088,31 @@ const applyTaskSubmission = ({ task, body, files = [] }) => {
 
   const nextItems = task.checklistItems.map((item) => {
     const response = responseMap.get(String(item.checklistItemId || item._id)) || {};
+    const employeeAnswerRemark = response.employeeAnswerRemark || "";
+    const legacyEmployeeAnswer = normalizeText(
+      item.employeeAnswerRemark || item.answer || item.remarks
+    );
+    const resolvedEmployeeAnswer = employeeAnswerRemark || legacyEmployeeAnswer;
 
     return {
       ...item.toObject(),
-      verified: response.verified === true,
-      remarks: response.remarks || "",
+      answer: resolvedEmployeeAnswer,
+      employeeAnswerRemark: resolvedEmployeeAnswer,
+      superiorAnswerRemark: normalizeText(item.superiorAnswerRemark),
+      verified: resolvedEmployeeAnswer ? true : response.verified === true,
+      remarks: resolvedEmployeeAnswer,
     };
   });
 
   const missingRequiredItem = nextItems.find(
-    (item) => item.isRequired && item.verified !== true
+    (item) =>
+      item.isRequired &&
+      !normalizeText(item.employeeAnswerRemark || item.answer || item.remarks)
   );
 
   if (missingRequiredItem) {
     return {
-      message: `Required item "${missingRequiredItem.label}" must be verified before submission`,
+      message: `Required question "${missingRequiredItem.label}" must be answered before submission`,
       status: 400,
     };
   }
@@ -1192,11 +2135,39 @@ const applyTaskSubmission = ({ task, body, files = [] }) => {
     originalName: file.originalname,
   }));
   task.submittedAt = new Date();
-  task.timelinessStatus = getTaskTimelinessStatus({
+  task.submissionTimingStatus = getSubmissionTimingStatus({
     submittedAt: task.submittedAt,
+    dependencyTargetDateTime: task.dependencyTargetDateTime,
     endDateTime: task.endDateTime,
   });
-  task.status = "submitted";
+  task.timelinessStatus = getTaskTimelinessStatus({
+    submittedAt: task.submittedAt,
+    dependencyTargetDateTime: task.dependencyTargetDateTime,
+    endDateTime: task.endDateTime,
+  });
+
+  if (submissionType === "nil") {
+    applyNilTaskMarkState(task);
+    task.status = "nil_for_approval";
+  } else {
+    const markConfig = resolveMarkConfig(task);
+    const markResult = calculateTaskMark({
+      submittedAt: task.submittedAt,
+      dependencyTargetDateTime: task.dependencyTargetDateTime,
+      endDateTime: task.endDateTime,
+      ...markConfig,
+    });
+
+    task.approvalType = "normal";
+    task.isNilApproval = false;
+    task.enableMark = markConfig.enableMark;
+    task.baseMark = markConfig.baseMark;
+    task.delayPenaltyPerDay = markConfig.delayPenaltyPerDay;
+    task.advanceBonusPerDay = markConfig.advanceBonusPerDay;
+    task.finalMark = markResult.finalMark;
+    task.status = "submitted";
+  }
+
   task.currentApprovalEmployee = task.approvalSteps[firstPendingStepIndex].approverEmployee;
   task.approvalSteps = task.approvalSteps.map((step, index) => ({
     ...step.toObject(),
@@ -1229,10 +2200,20 @@ const canAccessChecklistTask = (task, user) => {
   });
 };
 
-const applyChecklistDecision = ({ task, action, remarks }) => {
+const applyChecklistDecision = ({ task, action, remarks, itemResponses }) => {
   const normalizedAction = normalizeText(action).toLowerCase();
-  if (!["approve", "reject"].includes(normalizedAction)) {
-    return { message: "Approval action must be approve or reject", status: 400 };
+  const taskIsNil = isNilChecklistTask(task);
+  const allowedActions = taskIsNil
+    ? ["nil_approve", "reject"]
+    : ["approve", "nil_approve", "reject"];
+
+  if (!allowedActions.includes(normalizedAction)) {
+    return {
+      message: taskIsNil
+        ? "Nil approval tasks can only be nil approved or rejected"
+        : "Approval action must be approve, nil_approve, or reject",
+      status: 400,
+    };
   }
 
   const currentStepIndex = task.approvalSteps.findIndex(
@@ -1243,13 +2224,51 @@ const applyChecklistDecision = ({ task, action, remarks }) => {
     return { message: "No pending approval step found for this checklist", status: 400 };
   }
 
+  const responses = parseTaskItemResponses(itemResponses);
+  const responseMap = new Map(
+    responses
+      .filter((item) => item.checklistItemId)
+      .map((item) => [String(item.checklistItemId), item])
+  );
+
+  const nextItems = task.checklistItems.map((item) => {
+    const response = responseMap.get(String(item.checklistItemId || item._id)) || {};
+    const superiorAnswerRemark = response.superiorAnswerRemark || "";
+    const legacySuperiorAnswer = normalizeText(item.superiorAnswerRemark);
+    const resolvedSuperiorAnswer = superiorAnswerRemark || legacySuperiorAnswer;
+    const employeeAnswerRemark = normalizeText(
+      item.employeeAnswerRemark || item.answer || item.remarks
+    );
+
+    return {
+      ...item.toObject(),
+      answer: employeeAnswerRemark,
+      employeeAnswerRemark,
+      superiorAnswerRemark: resolvedSuperiorAnswer,
+      remarks: employeeAnswerRemark,
+    };
+  });
+
+  const missingRequiredItem = nextItems.find(
+    (item) => item.isRequired && !normalizeText(item.superiorAnswerRemark)
+  );
+
+  if (missingRequiredItem) {
+    return {
+      message: `Required question "${missingRequiredItem.label}" must include the superior answer or remark before approval action`,
+      status: 400,
+    };
+  }
+
+  task.checklistItems = nextItems;
+
   const now = new Date();
   const nextSteps = task.approvalSteps.map((step, index) => {
     if (index !== currentStepIndex) return step.toObject();
 
     return {
       ...step.toObject(),
-      status: normalizedAction === "approve" ? "approved" : "rejected",
+      status: normalizedAction === "reject" ? "rejected" : "approved",
       remarks: normalizeText(remarks),
       actedAt: now,
     };
@@ -1258,10 +2277,18 @@ const applyChecklistDecision = ({ task, action, remarks }) => {
   task.approvalSteps = nextSteps;
 
   if (normalizedAction === "reject") {
+    if (taskIsNil) {
+      applyNilTaskMarkState(task);
+    }
+
     task.status = "rejected";
     task.currentApprovalEmployee = null;
     task.completedAt = now;
     return { payload: task };
+  }
+
+  if (normalizedAction === "nil_approve") {
+    applyNilTaskMarkState(task);
   }
 
   const nextWaitingStep = nextSteps.find((step) => step.status === "waiting");
@@ -1273,12 +2300,15 @@ const applyChecklistDecision = ({ task, action, remarks }) => {
         step.approvalLevel === nextWaitingStep.approvalLevel ? "pending" : step.status,
     }));
     task.currentApprovalEmployee = nextWaitingStep.approverEmployee;
-    task.status = "submitted";
+    task.status = taskIsNil || normalizedAction === "nil_approve"
+      ? "nil_for_approval"
+      : "submitted";
     task.completedAt = null;
     return { payload: task };
   }
 
-  task.status = "approved";
+  task.status =
+    taskIsNil || normalizedAction === "nil_approve" ? "nil_approved" : "approved";
   task.currentApprovalEmployee = null;
   task.completedAt = now;
   return { payload: task };
@@ -1296,12 +2326,19 @@ module.exports = {
   checklistPopulateQuery,
   checklistTaskPopulateQuery,
   formatTimeLabel,
+  getRestrictedChecklistSiteId,
   getNextChecklistNumberValue,
+  hasChecklistMasterAccess,
   isAdminRequester,
   isEmployeeRequester,
   isValidObjectId,
+  calculateTaskMark,
   parseDateBoundary,
+  getDependencyBlockedMessage,
+  resolveMarkConfig,
+  runDependentChecklistScheduler,
   runChecklistScheduler,
+  syncChecklistTaskDependencies,
   startChecklistScheduler,
   stopChecklistScheduler,
   validateChecklistPayload,

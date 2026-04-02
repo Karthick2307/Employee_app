@@ -1,12 +1,65 @@
 const User = require("../models/User");
 const Employee = require("../models/Employee");
+const Site = require("../models/Site");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { JWT_SECRET, JWT_EXPIRES_IN } = require("../middleware/auth");
+const DEFAULT_ADMIN_EMAIL = "admin@test.com";
 
-const JWT_SECRET = "secret123";
+const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
+const normalizeId = (value) => String(value?._id || value || "").trim();
+
+const parseBoolean = (value, fallback = false) => {
+  if (typeof value === "boolean") return value;
+
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return fallback;
+
+  return ["true", "1", "yes", "on"].includes(normalized);
+};
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const formatSiteDisplayName = (site) => {
+  if (!site) return "";
+
+  const companyName = String(site.companyName || "").trim();
+  const name = String(site.name || "").trim();
+
+  if (companyName && name) return `${companyName} - ${name}`;
+  return name || companyName;
+};
+
+const buildSiteSummary = (site) => ({
+  siteId: normalizeId(site),
+  siteName: String(site?.name || "").trim(),
+  siteCompanyName: String(site?.companyName || "").trim(),
+  siteDisplayName: formatSiteDisplayName(site),
+});
+
+const isDefaultAdminAccount = (account) => {
+  if (!account) return false;
+
+  if (typeof account.isDefaultAdmin === "boolean") {
+    return account.isDefaultAdmin;
+  }
+
+  return normalizeEmail(account.email) === DEFAULT_ADMIN_EMAIL;
+};
+
+const ensureDefaultAdminFlag = async (account) => {
+  if (!account || typeof account.save !== "function") {
+    return account;
+  }
+
+  if (!account.isDefaultAdmin && normalizeEmail(account.email) === DEFAULT_ADMIN_EMAIL) {
+    account.isDefaultAdmin = true;
+    await account.save();
+  }
+
+  return account;
+};
 
 const buildLoginResponse = (account, accountType = "user") => {
   if (accountType === "employee") {
@@ -16,14 +69,29 @@ const buildLoginResponse = (account, accountType = "user") => {
       email: account.email || account.employeeCode || "",
       employeeCode: account.employeeCode || "",
       role: "employee",
+      isDefaultAdmin: false,
+      checklistMasterAccess: false,
+      siteId: "",
+      siteName: "",
+      siteCompanyName: "",
+      siteDisplayName: "",
     };
   }
+
+  const hasChecklistMasterAccess =
+    account.role === "user"
+      ? account.checklistMasterAccess !== false
+      : Boolean(account.checklistMasterAccess);
+  const siteSummary = buildSiteSummary(account.site);
 
   return {
     id: account._id,
     name: account.name || "",
     email: account.email,
     role: account.role,
+    isDefaultAdmin: isDefaultAdminAccount(account),
+    checklistMasterAccess: hasChecklistMasterAccess,
+    ...siteSummary,
   };
 };
 
@@ -41,20 +109,30 @@ exports.login = async (req, res) => {
     }
 
     const normalizedLoginId = loginId.toLowerCase();
-    const user = await User.findOne({ email: normalizedLoginId });
+    const user = await User.findOne({ email: normalizedLoginId }).populate(
+      "site",
+      "name companyName"
+    );
 
     if (user) {
       const isUserPasswordMatch = await bcrypt.compare(password, user.password);
 
       if (isUserPasswordMatch) {
+        await ensureDefaultAdminFlag(user);
+
         const token = jwt.sign(
           {
             id: user._id,
             role: user.role,
             email: user.email,
+            checklistMasterAccess:
+              user.role === "user"
+                ? user.checklistMasterAccess !== false
+                : Boolean(user.checklistMasterAccess),
+            siteId: normalizeId(user.site),
           },
           JWT_SECRET,
-          { expiresIn: "1d" }
+          { expiresIn: JWT_EXPIRES_IN }
         );
 
         return res.json({
@@ -94,7 +172,7 @@ exports.login = async (req, res) => {
         employeeCode: employee.employeeCode || "",
       },
       JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     return res.json({
@@ -111,9 +189,14 @@ exports.login = async (req, res) => {
 
 exports.getUsers = async (req, res) => {
   try {
-    const users = await User.find({}, "name email role createdAt").sort({
-      createdAt: -1,
-    });
+    const users = await User.find(
+      {},
+      "name email role checklistMasterAccess site createdAt updatedAt isDefaultAdmin"
+    )
+      .populate("site", "name companyName")
+      .sort({
+        createdAt: -1,
+      });
 
     return res.json(users);
   } catch (err) {
@@ -126,7 +209,8 @@ exports.getUsers = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role = "user" } = req.body;
+    const { name, email, password } = req.body;
+    const siteId = normalizeId(req.body.siteId || req.body.site);
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -140,12 +224,26 @@ exports.createUser = async (req, res) => {
       });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    if (!siteId) {
+      return res.status(400).json({
+        message: "Site is required for Checklist Master users",
+      });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedRole = "user";
 
     const exists = await User.findOne({ email: normalizedEmail });
     if (exists) {
       return res.status(409).json({
         message: "User already exists with this email",
+      });
+    }
+
+    const site = await Site.findById(siteId, "name companyName");
+    if (!site) {
+      return res.status(400).json({
+        message: "Selected site is invalid",
       });
     }
 
@@ -155,11 +253,15 @@ exports.createUser = async (req, res) => {
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
-      role: role === "admin" ? "admin" : "user",
+      site: site._id,
+      role: normalizedRole,
+      checklistMasterAccess: true,
     });
 
+    await user.populate("site", "name companyName");
+
     return res.status(201).json({
-      message: "User created",
+      message: "Checklist Master user created",
       user: buildLoginResponse(user),
     });
   } catch (err) {
@@ -173,6 +275,7 @@ exports.createUser = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { name, email, password = "", role = "user" } = req.body;
+    const requestedSiteId = normalizeId(req.body.siteId || req.body.site);
 
     if (!name || !email) {
       return res.status(400).json({
@@ -193,9 +296,20 @@ exports.updateUser = async (req, res) => {
       });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    await ensureDefaultAdminFlag(user);
+
+    const normalizedEmail = normalizeEmail(email);
     const normalizedRole = role === "admin" ? "admin" : "user";
     const isSelf = String(req.user?.id) === String(user._id);
+    const requester = isSelf
+      ? user
+      : await User.findById(req.user?.id).select("email isDefaultAdmin");
+
+    if (isDefaultAdminAccount(requester) && user.role !== "admin" && normalizedRole === "admin") {
+      return res.status(403).json({
+        message: "Default Admin cannot promote a user to admin",
+      });
+    }
 
     const existing = await User.findOne({
       email: normalizedEmail,
@@ -227,12 +341,37 @@ exports.updateUser = async (req, res) => {
     user.name = name.trim();
     user.email = normalizedEmail;
     user.role = normalizedRole;
+    if (normalizedRole === "admin") {
+      user.site = null;
+    } else {
+      const nextSiteId = requestedSiteId || normalizeId(user.site);
+
+      if (!nextSiteId) {
+        return res.status(400).json({
+          message: "Site is required for Checklist Master users",
+        });
+      }
+
+      const site = await Site.findById(nextSiteId, "_id");
+      if (!site) {
+        return res.status(400).json({
+          message: "Selected site is invalid",
+        });
+      }
+
+      user.site = site._id;
+    }
+    user.checklistMasterAccess =
+      normalizedRole === "admin"
+        ? false
+        : parseBoolean(req.body?.checklistMasterAccess, user.checklistMasterAccess);
 
     if (password) {
       user.password = await bcrypt.hash(password, 10);
     }
 
     await user.save();
+    await user.populate("site", "name companyName");
 
     return res.json({
       message: "User updated",

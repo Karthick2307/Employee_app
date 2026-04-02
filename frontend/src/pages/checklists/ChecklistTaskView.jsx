@@ -1,20 +1,65 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
+  formatApprovalTypeLabel,
+  formatChecklistDependencyLabel,
+  formatChecklistDependencyStatus,
   formatCurrentApproverLabel,
+  formatChecklistTaskStatus,
   formatDateTime,
   formatEmployeeLabel,
+  formatMarkAdjustment,
+  formatMarkValue,
   formatPriorityLabel,
   formatScheduleLabel,
+  formatTaskFinalMarkLabel,
+  formatTaskMarkDayLabel,
+  formatTargetDayCountLabel,
   formatTimelinessLabel,
   formatTaskStatus,
+  getTaskTargetDateTime,
+  getApprovalTypeBadgeClass,
+  getChecklistDependencyStatusBadgeClass,
+  getTaskMarkSummary,
+  getChecklistTaskStatusBadgeClass,
   getPriorityBadgeClass,
   getTimelinessBadgeClass,
-  getTaskStatusBadgeClass,
+  isNilChecklistTask,
 } from "../../utils/checklistDisplay";
 
 const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
+
+const normalizeTaskText = (value) => String(value || "").trim();
+
+const getEmployeeTaskAnswer = (value) => {
+  const answer = normalizeTaskText(
+    value?.employeeAnswerRemark || value?.answer || value?.remarks
+  );
+  if (answer) return answer;
+  return value?.verified ? "Completed" : "";
+};
+
+const getSuperiorTaskAnswer = (value) => normalizeTaskText(value?.superiorAnswerRemark);
+
+const buildTaskStageSummary = (task) => {
+  const normalizedStatus = String(task?.status || "").trim().toLowerCase();
+  const isNilTaskFlow = isNilChecklistTask(task);
+  const hasSubmission = Boolean(task?.submittedAt);
+  const hasApprovalReview =
+    hasSubmission ||
+    ["approved", "nil_approved", "rejected"].includes(normalizedStatus);
+
+  return [
+    { label: "Assigned", active: true },
+    { label: isNilTaskFlow ? "Nil Submitted" : "Submitted", active: hasSubmission },
+    { label: isNilTaskFlow ? "Nil Under Approval" : "Under Approval", active: hasApprovalReview },
+    {
+      label: isNilTaskFlow ? "Nil Approved / Completed" : "Approved / Completed",
+      active: ["approved", "nil_approved"].includes(normalizedStatus),
+    },
+  ];
+};
 
 export default function ChecklistTaskView() {
   const { id } = useParams();
@@ -38,11 +83,43 @@ export default function ChecklistTaskView() {
   const isCurrentApprover =
     String(task?.currentApprovalEmployee?._id || task?.currentApprovalEmployee || "") ===
     String(user?.id || "");
+  const isNilTaskFlow = isNilChecklistTask(task);
+  const isWaitingOnDependency =
+    String(task?.status || "").trim().toLowerCase() === "waiting_dependency";
 
   const canSubmit = isAssignedEmployee && task?.status === "open";
-  const canDecide = isCurrentApprover && task?.status === "submitted";
+  const canDecide =
+    isCurrentApprover && ["submitted", "nil_for_approval"].includes(String(task?.status || ""));
+  const markSummary = getTaskMarkSummary(task || {});
+  const taskStageSummary = buildTaskStageSummary(task);
+  const requiredSuperiorRemarksComplete =
+    !Array.isArray(task?.checklistItems) ||
+    task.checklistItems.every((item) => {
+      if (item?.isRequired === false) return true;
 
-  const loadTask = async () => {
+      const response =
+        itemResponses.find(
+          (row) =>
+            String(row.checklistItemId) === String(item.checklistItemId || item._id)
+        ) || {};
+
+      return Boolean(
+        normalizeTaskText(response.superiorAnswerRemark || item.superiorAnswerRemark)
+      );
+    });
+  const pageDescription = canDecide
+    ? isNilTaskFlow
+      ? "Review the submitted questions and complete the Nil approval flow without applying any task mark."
+      : "Review the submitted questions and enter your superior remark for each required question before approving or rejecting."
+    : isWaitingOnDependency
+    ? `This task is locked until ${formatChecklistDependencyLabel(task)} is completed.`
+    : canSubmit
+    ? "Review the assigned task, answer each question, and submit it for approval."
+    : isAssignedEmployee
+    ? "Review your submitted answers and track the approval progress."
+    : "Review the task questions and the superior review details.";
+
+  const loadTask = useCallback(async () => {
     setLoading(true);
 
     try {
@@ -55,8 +132,8 @@ export default function ChecklistTaskView() {
         Array.isArray(taskData?.checklistItems)
           ? taskData.checklistItems.map((item) => ({
               checklistItemId: item.checklistItemId || item._id,
-              verified: item.verified === true,
-              remarks: item.remarks || "",
+              employeeAnswerRemark: getEmployeeTaskAnswer(item),
+              superiorAnswerRemark: getSuperiorTaskAnswer(item),
             }))
           : []
       );
@@ -68,11 +145,11 @@ export default function ChecklistTaskView() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     void loadTask();
-  }, [id]);
+  }, [loadTask]);
 
   const updateItemResponse = (checklistItemId, key, value) => {
     setItemResponses((prev) =>
@@ -84,13 +161,23 @@ export default function ChecklistTaskView() {
     );
   };
 
-  const handleSubmitTask = async () => {
+  const handleSubmitTask = async (submissionType = "normal") => {
     setSaving(true);
 
     try {
       const payload = new FormData();
       payload.append("employeeRemarks", employeeRemarks);
-      payload.append("itemResponses", JSON.stringify(itemResponses));
+      payload.append("submissionType", submissionType);
+      payload.append(
+        "itemResponses",
+        JSON.stringify(
+          itemResponses.map((item) => ({
+            checklistItemId: item.checklistItemId,
+            employeeAnswerRemark: item.employeeAnswerRemark,
+            answer: item.employeeAnswerRemark,
+          }))
+        )
+      );
 
       Array.from(attachments || []).forEach((file) => {
         payload.append("attachments", file);
@@ -101,10 +188,14 @@ export default function ChecklistTaskView() {
       });
 
       await loadTask();
-      alert("Checklist task submitted successfully.");
+      alert(
+        submissionType === "nil"
+          ? "Task submitted for nil approval successfully."
+          : "Task answers submitted successfully."
+      );
     } catch (err) {
       console.error("Checklist task submit failed:", err);
-      alert(err.response?.data?.message || "Failed to submit checklist task");
+      alert(err.response?.data?.message || "Failed to submit task answers");
     } finally {
       setSaving(false);
     }
@@ -117,12 +208,19 @@ export default function ChecklistTaskView() {
       await api.post(`/checklists/tasks/${id}/decision`, {
         action,
         remarks: decisionRemarks,
+        itemResponses: itemResponses.map((item) => ({
+          checklistItemId: item.checklistItemId,
+          superiorAnswerRemark: item.superiorAnswerRemark,
+        })),
       });
 
       await loadTask();
-      alert(
-        `Checklist task ${action === "approve" ? "approved" : "rejected"} successfully.`
-      );
+      const actionLabelMap = {
+        approve: "approved",
+        reject: "rejected",
+        nil_approve: "nil approved",
+      };
+      alert(`Task answers ${actionLabelMap[action] || "updated"} successfully.`);
     } catch (err) {
       console.error("Checklist decision failed:", err);
       alert(err.response?.data?.message || "Failed to update checklist approval");
@@ -151,9 +249,7 @@ export default function ChecklistTaskView() {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h3 className="mb-1">Checklist Task</h3>
-          <div className="text-muted">
-            Review the generated task, complete the checklist, and move it through approval.
-          </div>
+          <div className="text-muted">{pageDescription}</div>
         </div>
 
         <Link className="btn btn-outline-secondary" to="/checklists">
@@ -163,11 +259,52 @@ export default function ChecklistTaskView() {
 
       <div className="card shadow-sm border-0 mb-3">
         <div className="card-body">
+          {isWaitingOnDependency ? (
+            <div className="alert alert-warning mb-3">
+              Waiting for Previous Task Completion. This checklist will unlock automatically after{" "}
+              <span className="fw-semibold">{formatChecklistDependencyLabel(task)}</span> is completed.
+            </div>
+          ) : null}
+
           <div className="row g-3">
             <Info label="Task Number" value={task.taskNumber} />
             <Info label="Checklist Number" value={task.checklistNumber} />
             <Info label="Checklist Name" value={task.checklistName} />
             <Info label="Assigned Employee" value={formatEmployeeLabel(task.assignedEmployee)} />
+            <Info label="Dependent Task" value={task.isDependentTask ? "Yes" : "No"} />
+            <Info
+              label="Previous Task"
+              value={task.isDependentTask ? formatChecklistDependencyLabel(task) : "-"}
+            />
+            <Info
+              label="Dependency Status"
+              value={
+                task.isDependentTask ? (
+                  <span className={`badge ${getChecklistDependencyStatusBadgeClass(task)}`}>
+                    {formatChecklistDependencyStatus(task)}
+                  </span>
+                ) : (
+                  "No Dependency"
+                )
+              }
+            />
+            <Info
+              label="Target Day Count"
+              value={task.isDependentTask ? formatTargetDayCountLabel(task.targetDayCount) : "-"}
+            />
+            <Info
+              label="Previous Task Completed At"
+              value={formatDateTime(task.dependencyCompletedAt)}
+            />
+            <Info
+              label="Target Date / Time"
+              value={formatDateTime(getTaskTargetDateTime(task))}
+            />
+            <Info
+              label="Auto Created From Dependency"
+              value={task.autoCreatedFromDependency ? "Yes" : "No"}
+            />
+            <Info label="Unlocked At" value={formatDateTime(task.unlockedAt)} />
             <Info
               label="Priority"
               value={
@@ -180,20 +317,34 @@ export default function ChecklistTaskView() {
             <Info label="Start Date / Time" value={formatDateTime(task.occurrenceDate)} />
             <Info label="End Date / Time" value={formatDateTime(task.endDateTime)} />
             <Info label="Submitted At" value={formatDateTime(task.submittedAt)} />
+            <Info
+              label="Approval Type"
+              value={
+                <span className={`badge ${getApprovalTypeBadgeClass(task)}`}>
+                  {formatApprovalTypeLabel(task)}
+                </span>
+              }
+            />
             <Info label="Current Approver" value={formatCurrentApproverLabel(task)} />
             <Info
               label="Time Status"
               value={
-                <span className={`badge ${getTimelinessBadgeClass(task.timelinessStatus)}`}>
-                  {formatTimelinessLabel(task.timelinessStatus)}
+                <span
+                  className={`badge ${getTimelinessBadgeClass(
+                    task.submissionTimingStatus || task.timelinessStatus
+                  )}`}
+                >
+                  {formatTimelinessLabel(
+                    task.submissionTimingStatus || task.timelinessStatus
+                  )}
                 </span>
               }
             />
             <Info
               label="Status"
               value={
-                <span className={`badge ${getTaskStatusBadgeClass(task.status)}`}>
-                  {formatTaskStatus(task.status)}
+                <span className={`badge ${getChecklistTaskStatusBadgeClass(task.status)}`}>
+                  {formatChecklistTaskStatus(task.status)}
                 </span>
               }
             />
@@ -203,9 +354,109 @@ export default function ChecklistTaskView() {
 
       <div className="card shadow-sm border-0 mb-3">
         <div className="card-body">
+          <div className="d-flex flex-wrap align-items-center gap-2">
+            {taskStageSummary.map((stage) => (
+              <span
+                key={stage.label}
+                className={`summary-chip${stage.active ? "" : " summary-chip--neutral"}`}
+              >
+                {stage.label}
+              </span>
+            ))}
+            {String(task.status || "").trim().toLowerCase() === "rejected" ? (
+              <span className="badge text-bg-danger">Rejected</span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="card shadow-sm border-0 mb-3">
+        <div className="card-body">
           <div className="d-flex justify-content-between align-items-center mb-3">
-            <h5 className="mb-0">Checklist Verification</h5>
-            {canSubmit && <span className="badge bg-primary">Editable</span>}
+            <h5 className="mb-0">Task Score</h5>
+            <span
+              className={`badge ${
+                markSummary.isNilApproval
+                  ? "bg-info text-dark border"
+                  : markSummary.enableMark
+                  ? "bg-success-subtle text-success border"
+                  : "bg-light text-dark border"
+              }`}
+            >
+              {markSummary.isNilApproval
+                ? "Nil Approval / No Mark"
+                : markSummary.enableMark
+                ? "Scored Task"
+                : "No Scoring"}
+            </span>
+          </div>
+
+          <div className="row g-3">
+            <Info
+              label="Base Mark"
+              value={
+                markSummary.isNilApproval
+                  ? "No Mark"
+                  : markSummary.enableMark
+                  ? formatMarkValue(markSummary.baseMark)
+                  : "Not enabled"
+              }
+            />
+            <Info
+              label="Delay/Advance Days"
+              value={formatTaskMarkDayLabel(task)}
+            />
+            <Info
+              label="Adjustment"
+              value={
+                markSummary.isNilApproval
+                  ? "No Mark"
+                  : markSummary.enableMark
+                  ? markSummary.adjustment !== null
+                    ? formatMarkAdjustment(markSummary.adjustment)
+                    : "Pending"
+                  : "Not enabled"
+              }
+            />
+            <Info
+              label="Final Mark"
+              value={formatTaskFinalMarkLabel(task)}
+            />
+            <Info
+              label="Delay Penalty / Day"
+              value={
+                markSummary.isNilApproval
+                  ? "No Mark"
+                  : markSummary.enableMark
+                  ? formatMarkValue(markSummary.delayPenaltyPerDay)
+                  : "Not enabled"
+              }
+            />
+            <Info
+              label="Advance Bonus / Day"
+              value={
+                markSummary.isNilApproval
+                  ? "No Mark"
+                  : markSummary.enableMark
+                  ? formatMarkValue(markSummary.advanceBonusPerDay)
+                  : "Not enabled"
+              }
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="card shadow-sm border-0 mb-3">
+        <div className="card-body">
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h5 className="mb-0">Task Related Questions</h5>
+            {canSubmit ? (
+              <span className="badge bg-primary">Employee Answer Required</span>
+            ) : canDecide ? (
+              <span className="badge bg-warning text-dark">Superior Remark Required</span>
+            ) : (
+              <span className="badge bg-light text-dark border">Read Only</span>
+            )}
           </div>
 
           <div className="table-responsive">
@@ -213,10 +464,17 @@ export default function ChecklistTaskView() {
               <thead className="table-light">
                 <tr>
                   <th>#</th>
-                  <th>Item</th>
-                  <th>Detail</th>
-                  <th style={{ width: "120px" }}>Verified</th>
-                  <th>Remarks</th>
+                  <th>Question</th>
+                  <th>Guidance</th>
+                  <th style={{ width: "34%" }}>
+                    {canDecide
+                      ? "Superior Answer / Remark"
+                      : isAssignedEmployee
+                      ? canSubmit
+                        ? "Answer / Remark"
+                        : "Your Answer / Remark"
+                      : "Superior Answer / Remark"}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -237,37 +495,55 @@ export default function ChecklistTaskView() {
                       </td>
                       <td>{item.detail || "-"}</td>
                       <td>
-                        <div className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            checked={response.verified === true}
-                            disabled={!canSubmit}
+                        {canSubmit ? (
+                          <textarea
+                            className="form-control"
+                            rows="3"
+                            value={response.employeeAnswerRemark || ""}
                             onChange={(event) =>
                               updateItemResponse(
                                 item.checklistItemId || item._id,
-                                "verified",
-                                event.target.checked
+                                "employeeAnswerRemark",
+                                event.target.value
                               )
                             }
+                            placeholder={
+                              item.isRequired !== false
+                                ? "Enter the required answer or remark"
+                                : "Enter the answer or remark"
+                            }
                           />
-                          <label className="form-check-label">Done</label>
-                        </div>
-                      </td>
-                      <td>
-                        <input
-                          className="form-control"
-                          value={response.remarks || ""}
-                          disabled={!canSubmit}
-                          onChange={(event) =>
-                            updateItemResponse(
-                              item.checklistItemId || item._id,
-                              "remarks",
-                              event.target.value
-                            )
-                          }
-                          placeholder="Optional remarks"
-                        />
+                        ) : canDecide ? (
+                          <textarea
+                            className="form-control"
+                            rows="3"
+                            value={response.superiorAnswerRemark || ""}
+                            onChange={(event) =>
+                              updateItemResponse(
+                                item.checklistItemId || item._id,
+                                "superiorAnswerRemark",
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              item.isRequired !== false
+                                ? "Enter the required superior answer or remark"
+                                : "Enter the superior answer or remark"
+                            }
+                          />
+                        ) : isAssignedEmployee ? (
+                          <div className="small text-dark">
+                            {getEmployeeTaskAnswer(response) ||
+                              getEmployeeTaskAnswer(item) ||
+                              "No answer submitted."}
+                          </div>
+                        ) : (
+                          <div className="small text-dark">
+                            {getSuperiorTaskAnswer(response) ||
+                              getSuperiorTaskAnswer(item) ||
+                              "No superior remark submitted."}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -277,37 +553,42 @@ export default function ChecklistTaskView() {
           </div>
 
           <div className="row g-3 mt-1">
-            <div className="col-md-8">
-              <label className="form-label fw-semibold">Employee Remarks</label>
-              <textarea
-                className="form-control"
-                rows="3"
-                value={employeeRemarks}
-                disabled={!canSubmit}
-                onChange={(event) => setEmployeeRemarks(event.target.value)}
-                placeholder="Add a summary, issue note, or completion remarks"
-              />
-            </div>
-
-            <div className="col-md-4">
-              <label className="form-label fw-semibold">Attachments</label>
-              <input
-                type="file"
-                multiple
-                className="form-control"
-                disabled={!canSubmit}
-                onChange={(event) => setAttachments(event.target.files || [])}
-              />
-
-              <div className="small text-muted mt-2">
-                Upload supporting files along with the submission.
+            {canSubmit || isAssignedEmployee ? (
+              <div className={canSubmit ? "col-md-8" : "col-12"}>
+                <label className="form-label fw-semibold">Submission Summary</label>
+                <textarea
+                  className="form-control"
+                  rows="3"
+                  value={employeeRemarks}
+                  disabled={!canSubmit}
+                  onChange={(event) => setEmployeeRemarks(event.target.value)}
+                  placeholder="Add an overall note for the submitted answers"
+                />
               </div>
-            </div>
+            ) : null}
+
+            {canSubmit ? (
+              <div className="col-md-4">
+                <label className="form-label fw-semibold">Attachments</label>
+                <input
+                  type="file"
+                  multiple
+                  className="form-control"
+                  onChange={(event) => setAttachments(event.target.files || [])}
+                />
+
+                <div className="small text-muted mt-2">
+                  Upload supporting files along with the submission.
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {Array.isArray(task.employeeAttachments) && task.employeeAttachments.length > 0 && (
             <div className="mt-3">
-              <div className="fw-semibold mb-2">Submitted Attachments</div>
+              <div className="fw-semibold mb-2">
+                {canSubmit || isAssignedEmployee ? "Submitted Attachments" : "Employee Attachments"}
+              </div>
               <ul className="list-group">
                 {task.employeeAttachments.map((file, index) => (
                   <li className="list-group-item" key={`${file.fileName}-${index}`}>
@@ -325,14 +606,22 @@ export default function ChecklistTaskView() {
           )}
 
           {canSubmit && (
-            <div className="d-flex justify-content-end mt-3">
+            <div className="d-flex flex-wrap justify-content-end gap-2 mt-3">
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                onClick={() => handleSubmitTask("nil")}
+                disabled={saving}
+              >
+                {saving ? "Submitting..." : "Nil For Approval"}
+              </button>
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={handleSubmitTask}
+                onClick={() => handleSubmitTask("normal")}
                 disabled={saving}
               >
-                {saving ? "Submitting..." : "Submit Checklist Task"}
+                {saving ? "Submitting..." : "Submit For Approval"}
               </button>
             </div>
           )}
@@ -343,7 +632,15 @@ export default function ChecklistTaskView() {
         <div className="card-body">
           <div className="d-flex justify-content-between align-items-center mb-3">
             <h5 className="mb-0">Approval Workflow</h5>
-            {canDecide && <span className="badge bg-warning text-dark">Approval Pending</span>}
+            {canDecide && (
+              <span
+                className={`badge ${
+                  isNilTaskFlow ? "bg-info text-dark" : "bg-warning text-dark"
+                }`}
+              >
+                {isNilTaskFlow ? "Nil Approval Pending" : "Approval Pending"}
+              </span>
+            )}
           </div>
 
           <div className="table-responsive">
@@ -373,13 +670,17 @@ export default function ChecklistTaskView() {
 
           {canDecide && (
             <div className="border rounded p-3 mt-3">
-              <label className="form-label fw-semibold">Approval Remarks</label>
+              <div className="small text-muted mb-3">
+                Enter the superior answer or remark for every required question to enable approval actions.
+              </div>
+
+              <label className="form-label fw-semibold">Approval Summary</label>
               <textarea
                 className="form-control mb-3"
                 rows="3"
                 value={decisionRemarks}
                 onChange={(event) => setDecisionRemarks(event.target.value)}
-                placeholder="Add an approval or rejection note"
+                placeholder="Add an approval or rejection summary if needed"
               />
 
               <div className="d-flex justify-content-end gap-2">
@@ -387,15 +688,23 @@ export default function ChecklistTaskView() {
                   type="button"
                   className="btn btn-danger"
                   onClick={() => handleDecision("reject")}
-                  disabled={decisionLoading}
+                  disabled={decisionLoading || !requiredSuperiorRemarksComplete}
                 >
                   {decisionLoading ? "Saving..." : "Reject"}
                 </button>
                 <button
                   type="button"
+                  className="btn btn-outline-info"
+                  onClick={() => handleDecision("nil_approve")}
+                  disabled={decisionLoading || !requiredSuperiorRemarksComplete}
+                >
+                  {decisionLoading ? "Saving..." : "Nil Approve"}
+                </button>
+                <button
+                  type="button"
                   className="btn btn-success"
                   onClick={() => handleDecision("approve")}
-                  disabled={decisionLoading}
+                  disabled={decisionLoading || !requiredSuperiorRemarksComplete || isNilTaskFlow}
                 >
                   {decisionLoading ? "Saving..." : "Approve"}
                 </button>

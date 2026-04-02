@@ -1,17 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/axios";
 import {
   formatApprovalLabel,
+  formatApprovalTypeLabel,
+  formatChecklistDependencyLabel,
+  formatChecklistDependencyStatus,
+  formatChecklistTaskStatus,
+  formatChecklistScoreLabel,
   formatCurrentApproverLabel,
   formatDateTime,
   formatEmployeeLabel,
   formatPriorityLabel,
   formatScheduleLabel,
-  formatTaskStatus,
+  formatTaskFinalMarkLabel,
+  formatTaskMarkDayLabel,
+  formatTargetDayCountLabel,
+  getApprovalTypeBadgeClass,
+  getChecklistDependencyStatusBadgeClass,
   getPriorityBadgeClass,
   getPriorityRowClass,
-  getTaskStatusBadgeClass,
+  getChecklistTaskStatusBadgeClass,
 } from "../../utils/checklistDisplay";
 
 const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
@@ -102,6 +111,11 @@ function DeleteIcon() {
 export default function ChecklistList() {
   const user = getUser();
   const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
+  const hasRestrictedChecklistAccess =
+    !isAdmin &&
+    (String(user?.role || "").trim().toLowerCase() === "user" ||
+      Boolean(user?.checklistMasterAccess));
+  const canManageChecklistMasters = isAdmin || hasRestrictedChecklistAccess;
 
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
@@ -109,19 +123,28 @@ export default function ChecklistList() {
   const [scheduleType, setScheduleType] = useState("");
   const [loading, setLoading] = useState(false);
   const [schedulerLoading, setSchedulerLoading] = useState(false);
+  const [selectedChecklistIds, setSelectedChecklistIds] = useState([]);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     const loadRows = async () => {
       setLoading(true);
 
       try {
-        const response = await api.get(isAdmin ? "/checklists" : "/checklists/tasks/my", {
-          params: {
-            search: search || undefined,
-            status: status || undefined,
-            scheduleType: scheduleType || undefined,
-          },
-        });
+        const response = await api.get(
+          canManageChecklistMasters ? "/checklists" : "/checklists/tasks/my",
+          {
+            params: {
+              search: search || undefined,
+              status: status || undefined,
+              scheduleType: scheduleType || undefined,
+            },
+          }
+        );
 
         setRows(Array.isArray(response.data) ? response.data : []);
       } catch (err) {
@@ -133,7 +156,55 @@ export default function ChecklistList() {
     };
 
     void loadRows();
-  }, [isAdmin, scheduleType, search, status]);
+  }, [canManageChecklistMasters, reloadToken, scheduleType, search, status]);
+
+  useEffect(() => {
+    if (!canManageChecklistMasters) {
+      setSelectedChecklistIds([]);
+      return;
+    }
+
+    setSelectedChecklistIds((currentValue) =>
+      currentValue.filter((selectedId) =>
+        rows.some((row) => String(row._id) === String(selectedId))
+      )
+    );
+  }, [canManageChecklistMasters, rows]);
+
+  const removeRowsFromState = (checklistIds) => {
+    const normalizedIds = checklistIds.map((id) => String(id));
+
+    setRows((currentValue) =>
+      currentValue.filter((row) => !normalizedIds.includes(String(row._id)))
+    );
+    setSelectedChecklistIds((currentValue) =>
+      currentValue.filter((selectedId) => !normalizedIds.includes(String(selectedId)))
+    );
+  };
+
+  const toggleChecklistSelection = (id) => {
+    const normalizedId = String(id);
+
+    setSelectedChecklistIds((currentValue) =>
+      currentValue.includes(normalizedId)
+        ? currentValue.filter((selectedId) => selectedId !== normalizedId)
+        : [...currentValue, normalizedId]
+    );
+  };
+
+  const toggleAllChecklistSelections = () => {
+    const visibleChecklistIds = rows.map((row) => String(row._id));
+
+    if (
+      visibleChecklistIds.length &&
+      visibleChecklistIds.every((checklistId) => selectedChecklistIds.includes(checklistId))
+    ) {
+      setSelectedChecklistIds([]);
+      return;
+    }
+
+    setSelectedChecklistIds(visibleChecklistIds);
+  };
 
   const toggleChecklistStatus = async (id) => {
     try {
@@ -156,10 +227,49 @@ export default function ChecklistList() {
 
     try {
       await api.delete(`/checklists/${id}`);
-      setRows((prev) => prev.filter((row) => row._id !== id));
+      removeRowsFromState([id]);
     } catch (err) {
       console.error("Checklist delete failed:", err);
       alert(err.response?.data?.message || "Failed to delete checklist master");
+    }
+  };
+
+  const deleteSelectedChecklists = async () => {
+    if (!selectedChecklistIds.length) {
+      return;
+    }
+
+    const checklistIdsToDelete = [...selectedChecklistIds];
+
+    if (
+      !window.confirm(
+        `Delete ${checklistIdsToDelete.length} selected checklist master${
+          checklistIdsToDelete.length === 1 ? "" : "s"
+        } and their generated tasks?`
+      )
+    ) {
+      return;
+    }
+
+    setBulkDeleteLoading(true);
+
+    try {
+      const response = await api.post("/checklists/bulk-delete", {
+        checklistIds: checklistIdsToDelete,
+      });
+      const deletedCount = Number(response.data?.deletedCount || checklistIdsToDelete.length);
+
+      removeRowsFromState(checklistIdsToDelete);
+      alert(
+        `${deletedCount} checklist master${
+          deletedCount === 1 ? "" : "s"
+        } deleted successfully.`
+      );
+    } catch (err) {
+      console.error("Checklist bulk delete failed:", err);
+      alert(err.response?.data?.message || "Failed to delete selected checklist masters");
+    } finally {
+      setBulkDeleteLoading(false);
     }
   };
 
@@ -178,21 +288,132 @@ export default function ChecklistList() {
     }
   };
 
-  return isAdmin ? (
-    <AdminChecklistMasterList
-      rows={rows}
-      loading={loading}
-      search={search}
-      status={status}
-      scheduleType={scheduleType}
-      setSearch={setSearch}
-      setStatus={setStatus}
-      setScheduleType={setScheduleType}
-      toggleChecklistStatus={toggleChecklistStatus}
-      deleteChecklist={deleteChecklist}
-      runScheduler={runScheduler}
-      schedulerLoading={schedulerLoading}
-    />
+  const exportChecklistExcel = async () => {
+    setExportLoading(true);
+
+    try {
+      const response = await api.get("/checklists/export/excel", {
+        params: {
+          search: search || undefined,
+          status: status || undefined,
+          scheduleType: scheduleType || undefined,
+        },
+        responseType: "blob",
+      });
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = "checklist-masters.xlsx";
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Checklist export failed:", err);
+      alert(err.response?.data?.message || "Failed to export checklist masters");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const openChecklistImportPicker = () => {
+    if (importLoading) return;
+    importInputRef.current?.click();
+  };
+
+  const importChecklistExcel = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    setImportLoading(true);
+
+    try {
+      const response = await api.post("/checklists/import/excel", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const createdCount = Number(response.data?.createdCount || 0);
+      const failedCount = Number(response.data?.failedCount || 0);
+      const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
+      const previewFailures = failures
+        .slice(0, 5)
+        .map((failure) => `Row ${failure.rowNumber}: ${failure.message}`)
+        .join("\n");
+
+      alert(
+        [
+          `Import completed.`,
+          `${createdCount} checklist master${createdCount === 1 ? "" : "s"} created.`,
+          `${failedCount} row${failedCount === 1 ? "" : "s"} failed.`,
+          previewFailures ? `\n${previewFailures}` : "",
+        ].join("\n")
+      );
+
+      setReloadToken((currentValue) => currentValue + 1);
+    } catch (err) {
+      console.error("Checklist import failed:", err);
+      alert(err.response?.data?.message || "Failed to import checklist masters");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const clearFilters = () => {
+    setSearch("");
+    setStatus("");
+    setScheduleType("");
+  };
+
+  return canManageChecklistMasters ? (
+    <>
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".xlsx"
+        className="d-none"
+        onChange={importChecklistExcel}
+      />
+      <AdminChecklistMasterList
+        rows={rows}
+        loading={loading}
+        search={search}
+        status={status}
+        scheduleType={scheduleType}
+        setSearch={setSearch}
+        setStatus={setStatus}
+        setScheduleType={setScheduleType}
+        toggleChecklistStatus={toggleChecklistStatus}
+        deleteChecklist={deleteChecklist}
+        selectedChecklistIds={selectedChecklistIds}
+        toggleChecklistSelection={toggleChecklistSelection}
+        toggleAllChecklistSelections={toggleAllChecklistSelections}
+        deleteSelectedChecklists={deleteSelectedChecklists}
+        bulkDeleteLoading={bulkDeleteLoading}
+        runScheduler={runScheduler}
+        schedulerLoading={schedulerLoading}
+        clearFilters={clearFilters}
+        exportChecklistExcel={exportChecklistExcel}
+        exportLoading={exportLoading}
+        openChecklistImportPicker={openChecklistImportPicker}
+        importLoading={importLoading}
+        canDelete={true}
+        canCreate={true}
+        canEdit={canManageChecklistMasters}
+        canToggle={isAdmin}
+        canRunScheduler={isAdmin}
+      />
+    </>
   ) : (
     <EmployeeChecklistTaskList
       rows={rows}
@@ -203,6 +424,7 @@ export default function ChecklistList() {
       setSearch={setSearch}
       setStatus={setStatus}
       setScheduleType={setScheduleType}
+      clearFilters={clearFilters}
     />
   );
 }
@@ -218,82 +440,177 @@ function AdminChecklistMasterList({
   setScheduleType,
   toggleChecklistStatus,
   deleteChecklist,
+  selectedChecklistIds,
+  toggleChecklistSelection,
+  toggleAllChecklistSelections,
+  deleteSelectedChecklists,
+  bulkDeleteLoading,
   runScheduler,
   schedulerLoading,
+  clearFilters,
+  exportChecklistExcel,
+  exportLoading,
+  openChecklistImportPicker,
+  importLoading,
+  canDelete,
+  canCreate,
+  canEdit,
+  canToggle,
+  canRunScheduler,
 }) {
+  const allRowsSelected =
+    rows.length > 0 &&
+    rows.every((row) => selectedChecklistIds.includes(String(row._id)));
+  const activeCount = rows.filter((row) => row.status).length;
+  const inactiveCount = rows.length - activeCount;
+  const hasFilters = Boolean(search.trim() || status || scheduleType);
+
   return (
     <div className="container-fluid mt-4 mb-5">
-      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-        <div>
-          <h3 className="mb-1">Checklist Master</h3>
-          <div className="text-muted">
-            Create recurring checklist definitions and auto-generate employee tasks.
+      <div className="page-intro-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <div className="page-kicker">Checklists</div>
+            <h3 className="mb-1">Checklist Master</h3>
+            <div className="page-subtitle">
+              Create recurring checklist definitions and auto-generate employee tasks.
+            </div>
+          </div>
+
+          <div className="d-flex flex-wrap gap-2">
+            {canDelete ? (
+              <button
+                type="button"
+                className="btn btn-outline-danger"
+                onClick={deleteSelectedChecklists}
+                disabled={!selectedChecklistIds.length || bulkDeleteLoading}
+              >
+                {bulkDeleteLoading
+                  ? "Deleting..."
+                  : `Delete Selected${selectedChecklistIds.length ? ` (${selectedChecklistIds.length})` : ""}`}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-outline-success"
+              onClick={exportChecklistExcel}
+              disabled={exportLoading}
+            >
+              {exportLoading ? "Exporting..." : "Export Excel"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={openChecklistImportPicker}
+              disabled={importLoading}
+            >
+              {importLoading ? "Importing..." : "Import Excel"}
+            </button>
+            {canRunScheduler ? (
+              <button
+                type="button"
+                className="btn btn-outline-primary"
+                onClick={runScheduler}
+                disabled={schedulerLoading}
+              >
+                {schedulerLoading ? "Running..." : "Run Scheduler"}
+              </button>
+            ) : null}
+            {canCreate ? (
+              <Link to="/checklists/create" className="btn btn-success">
+                Create Master
+              </Link>
+            ) : null}
           </div>
         </div>
 
-        <div className="d-flex flex-wrap gap-2">
+        <div className="list-summary mt-3">
+          <span className="summary-chip">{rows.length} masters</span>
+          <span className="summary-chip summary-chip--neutral">{activeCount} active</span>
+          <span className="summary-chip summary-chip--neutral">{inactiveCount} inactive</span>
+          {selectedChecklistIds.length ? (
+            <span className="summary-chip">{selectedChecklistIds.length} selected</span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="filter-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <h6 className="mb-1">Filters</h6>
+            <div className="form-help">
+              Narrow checklist masters by name, status, or schedule type.
+            </div>
+          </div>
+
           <button
             type="button"
-            className="btn btn-outline-primary"
-            onClick={runScheduler}
-            disabled={schedulerLoading}
+            className="btn btn-outline-secondary"
+            onClick={clearFilters}
+            disabled={!hasFilters}
           >
-            {schedulerLoading ? "Running..." : "Run Scheduler"}
+            Clear Filters
           </button>
-          <Link to="/checklists/create" className="btn btn-success">
-            + Create Master
-          </Link>
         </div>
-      </div>
 
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-md-5">
-              <input
-                className="form-control"
-                placeholder="Search checklist number or name"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </div>
-            <div className="col-md-3">
-              <select
-                className="form-select"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-            <div className="col-md-4">
-              <select
-                className="form-select"
-                value={scheduleType}
-                onChange={(event) => setScheduleType(event.target.value)}
-              >
-                <option value="">All Schedules</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
+        <div className="row g-2 mt-1">
+          <div className="col-md-5">
+            <input
+              className="form-control"
+              placeholder="Search checklist number or name"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <div className="col-md-3">
+            <select
+              className="form-select"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div className="col-md-4">
+            <select
+              className="form-select"
+              value={scheduleType}
+              onChange={(event) => setScheduleType(event.target.value)}
+            >
+              <option value="">All schedules</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+              <option value="custom">Custom</option>
+            </select>
           </div>
         </div>
       </div>
 
+      <div className="table-shell">
       <div className="table-responsive">
         <table className="table table-bordered table-striped align-middle">
           <thead className="table-dark">
             <tr>
+              {canDelete ? (
+                <th className="text-center" style={{ width: "56px" }}>
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={allRowsSelected}
+                    onChange={toggleAllChecklistSelections}
+                    disabled={!rows.length || bulkDeleteLoading}
+                    aria-label="Select all checklist masters"
+                  />
+                </th>
+              ) : null}
               <th>#</th>
               <th>Checklist Number</th>
               <th>Name</th>
-              <th>Mark</th>
+              <th>Scoring</th>
               <th>Source Site</th>
               <th>Employee</th>
               <th>Priority</th>
@@ -302,6 +619,7 @@ function AdminChecklistMasterList({
               <th>End</th>
               <th>Next Task</th>
               <th>Approver Mapping</th>
+              <th>Dependency</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
@@ -309,7 +627,7 @@ function AdminChecklistMasterList({
           <tbody>
             {loading && (
               <tr>
-                <td colSpan="14" className="text-center">
+                <td colSpan={canDelete ? "16" : "15"} className="text-center">
                   Loading checklist masters...
                 </td>
               </tr>
@@ -317,7 +635,7 @@ function AdminChecklistMasterList({
 
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan="14" className="text-center">
+                <td colSpan={canDelete ? "16" : "15"} className="text-center">
                   No checklist masters found
                 </td>
               </tr>
@@ -326,10 +644,22 @@ function AdminChecklistMasterList({
             {!loading &&
               rows.map((row, index) => (
                 <tr key={row._id} className={getPriorityRowClass(row)}>
+                  {canDelete ? (
+                    <td className="text-center">
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={selectedChecklistIds.includes(String(row._id))}
+                        onChange={() => toggleChecklistSelection(row._id)}
+                        disabled={bulkDeleteLoading}
+                        aria-label={`Select checklist master ${row.checklistNumber}`}
+                      />
+                    </td>
+                  ) : null}
                   <td>{index + 1}</td>
                   <td>{row.checklistNumber}</td>
                   <td className="fw-semibold">{row.checklistName}</td>
-                  <td>{row.checklistMark ?? 1}</td>
+                  <td>{formatChecklistScoreLabel(row)}</td>
                   <td>{getChecklistSiteName(row.checklistSourceSite) || "-"}</td>
                   <td>{formatEmployeeLabel(row.assignedToEmployee)}</td>
                   <td>
@@ -349,56 +679,71 @@ function AdminChecklistMasterList({
                   <td>{formatDateTime(row.nextOccurrenceAt)}</td>
                   <td>{formatApprovalLabel(row)}</td>
                   <td>
+                    <div>{formatChecklistDependencyLabel(row)}</div>
+                    {row.isDependentTask ? (
+                      <div className="small text-muted">
+                        Target: {formatTargetDayCountLabel(row.targetDayCount)}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td>
                     <span className={`badge ${row.status ? "bg-success" : "bg-secondary"}`}>
                       {row.status ? "Active" : "Inactive"}
                     </span>
                   </td>
                   <td>
-                    <div className="d-flex flex-wrap gap-1 justify-content-center">
+                    <div className="app-icon-action-group justify-content-center">
                       <Link
-                        className="btn btn-sm btn-outline-info"
+                        className="btn btn-sm btn-outline-info app-icon-action-btn"
                         to={`/checklists/${row._id}`}
                         title="View checklist master"
                         aria-label={`View checklist master ${row.checklistNumber}`}
                       >
                         <ViewIcon />
                       </Link>
-                      <Link
-                        className="btn btn-sm btn-outline-warning"
-                        to={`/checklists/edit/${row._id}`}
-                        title="Edit checklist master"
-                        aria-label={`Edit checklist master ${row.checklistNumber}`}
-                      >
-                        <EditIcon />
-                      </Link>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${
-                          row.status ? "btn-outline-secondary" : "btn-outline-success"
-                        }`}
-                        onClick={() => toggleChecklistStatus(row._id)}
-                        title={row.status ? "Deactivate checklist master" : "Activate checklist master"}
-                        aria-label={`${
-                          row.status ? "Deactivate" : "Activate"
-                        } checklist master ${row.checklistNumber}`}
-                      >
-                        <ToggleIcon active={row.status} />
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-danger"
-                        onClick={() => deleteChecklist(row._id)}
-                        title="Delete checklist master"
-                        aria-label={`Delete checklist master ${row.checklistNumber}`}
-                      >
-                        <DeleteIcon />
-                      </button>
+                      {canEdit ? (
+                        <Link
+                          className="btn btn-sm btn-outline-warning app-icon-action-btn"
+                          to={`/checklists/edit/${row._id}`}
+                          title="Edit checklist master"
+                          aria-label={`Edit checklist master ${row.checklistNumber}`}
+                        >
+                          <EditIcon />
+                        </Link>
+                      ) : null}
+                      {canToggle ? (
+                        <button
+                          type="button"
+                          className={`btn btn-sm app-icon-action-btn ${
+                            row.status ? "btn-outline-secondary" : "btn-outline-success"
+                          }`}
+                          onClick={() => toggleChecklistStatus(row._id)}
+                          title={row.status ? "Deactivate checklist master" : "Activate checklist master"}
+                          aria-label={`${
+                            row.status ? "Deactivate" : "Activate"
+                          } checklist master ${row.checklistNumber}`}
+                        >
+                          <ToggleIcon active={row.status} />
+                        </button>
+                      ) : null}
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger app-icon-action-btn"
+                          onClick={() => deleteChecklist(row._id)}
+                          title="Delete checklist master"
+                          aria-label={`Delete checklist master ${row.checklistNumber}`}
+                        >
+                          <DeleteIcon />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
               ))}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );
@@ -413,64 +758,111 @@ function EmployeeChecklistTaskList({
   setSearch,
   setStatus,
   setScheduleType,
+  clearFilters,
 }) {
+  const openCount = rows.filter((row) => row.status === "open").length;
+  const waitingDependencyCount = rows.filter(
+    (row) => String(row.status || "").trim().toLowerCase() === "waiting_dependency"
+  ).length;
+  const pendingApprovalCount = rows.filter((row) =>
+    ["submitted", "nil_for_approval"].includes(String(row.status || ""))
+  ).length;
+  const hasFilters = Boolean(search.trim() || status || scheduleType);
+
   return (
     <div className="container-fluid mt-4 mb-5">
-      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-        <div>
-          <h3 className="mb-1">My Checklist Tasks</h3>
-          <div className="text-muted">
-            Open your assigned recurring tasks, verify the checklist, add remarks, and submit.
+      <div className="page-intro-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <div className="page-kicker">Checklists</div>
+            <h3 className="mb-1">My Checklist Tasks</h3>
+            <div className="page-subtitle">
+              Open your assigned recurring tasks, answer the task questions, and submit them for approval.
+            </div>
+          </div>
+
+          <div className="d-flex flex-wrap gap-2">
+            <Link to="/own-tasks" className="btn btn-outline-secondary">
+              Own Tasks
+            </Link>
+            <Link to="/checklists/approvals" className="btn btn-outline-primary">
+              Approval Inbox
+            </Link>
           </div>
         </div>
 
-        <Link to="/checklists/approvals" className="btn btn-outline-primary">
-          Approval Inbox
-        </Link>
+        <div className="list-summary mt-3">
+          <span className="summary-chip">{rows.length} tasks</span>
+          <span className="summary-chip summary-chip--neutral">{openCount} assigned</span>
+          <span className="summary-chip summary-chip--neutral">
+            {waitingDependencyCount} waiting dependency
+          </span>
+          <span className="summary-chip summary-chip--neutral">
+            {pendingApprovalCount} under approval
+          </span>
+        </div>
       </div>
 
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-md-6">
-              <input
-                className="form-control"
-                placeholder="Search task number or checklist name"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </div>
-            <div className="col-md-3">
-              <select
-                className="form-select"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                <option value="">All Status</option>
-                <option value="open">Open</option>
-                <option value="submitted">Submitted</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <select
-                className="form-select"
-                value={scheduleType}
-                onChange={(event) => setScheduleType(event.target.value)}
-              >
-                <option value="">All Schedules</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
+      <div className="filter-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <h6 className="mb-1">Filters</h6>
+            <div className="form-help">Narrow tasks by name, status, or schedule.</div>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={clearFilters}
+            disabled={!hasFilters}
+          >
+            Clear Filters
+          </button>
+        </div>
+
+        <div className="row g-2 mt-1">
+          <div className="col-md-6">
+            <input
+              className="form-control"
+              placeholder="Search task number or checklist name"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <div className="col-md-3">
+            <select
+              className="form-select"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="">All statuses</option>
+              <option value="waiting_dependency">Waiting for Dependency</option>
+              <option value="open">Assigned</option>
+              <option value="submitted">Under Approval</option>
+              <option value="nil_for_approval">Nil For Approval</option>
+              <option value="approved">Approved / Completed</option>
+              <option value="nil_approved">Nil Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div className="col-md-3">
+            <select
+              className="form-select"
+              value={scheduleType}
+              onChange={(event) => setScheduleType(event.target.value)}
+            >
+              <option value="">All schedules</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+              <option value="custom">Custom</option>
+            </select>
           </div>
         </div>
       </div>
 
+      <div className="table-shell">
       <div className="table-responsive">
         <table className="table table-bordered table-striped align-middle">
           <thead className="table-dark">
@@ -481,7 +873,11 @@ function EmployeeChecklistTaskList({
               <th>Priority</th>
               <th>Schedule</th>
               <th>Occurrence</th>
+              <th>Delay/Advance</th>
+              <th>Final Mark</th>
+              <th>Approval Type</th>
               <th>Current Approver</th>
+              <th>Dependency</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
@@ -489,7 +885,7 @@ function EmployeeChecklistTaskList({
           <tbody>
             {loading && (
               <tr>
-                <td colSpan="9" className="text-center">
+                <td colSpan="13" className="text-center">
                   Loading checklist tasks...
                 </td>
               </tr>
@@ -497,14 +893,15 @@ function EmployeeChecklistTaskList({
 
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan="9" className="text-center">
+                <td colSpan="13" className="text-center">
                   No checklist tasks found
                 </td>
               </tr>
             )}
 
             {!loading &&
-              rows.map((row, index) => (
+              rows.map((row, index) => {
+                return (
                 <tr key={row._id} className={getPriorityRowClass(row)}>
                   <td>{index + 1}</td>
                   <td>{row.taskNumber}</td>
@@ -516,21 +913,53 @@ function EmployeeChecklistTaskList({
                   </td>
                   <td>{formatScheduleLabel(row)}</td>
                   <td>{formatDateTime(row.occurrenceDate)}</td>
+                  <td>{formatTaskMarkDayLabel(row)}</td>
+                  <td>{formatTaskFinalMarkLabel(row)}</td>
+                  <td>
+                    <span className={`badge ${getApprovalTypeBadgeClass(row)}`}>
+                      {formatApprovalTypeLabel(row)}
+                    </span>
+                  </td>
                   <td>{formatCurrentApproverLabel(row)}</td>
                   <td>
-                    <span className={`badge ${getTaskStatusBadgeClass(row.status)}`}>
-                      {formatTaskStatus(row.status)}
+                    {row.isDependentTask ? (
+                      <>
+                        <span className={`badge ${getChecklistDependencyStatusBadgeClass(row)}`}>
+                          {formatChecklistDependencyStatus(row)}
+                        </span>
+                        <div className="small text-muted mt-1">
+                          {formatChecklistDependencyLabel(row)}
+                        </div>
+                        <div className="small text-muted">
+                          Target: {formatTargetDayCountLabel(row.targetDayCount)}
+                        </div>
+                      </>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td>
+                    <span className={`badge ${getChecklistTaskStatusBadgeClass(row.status)}`}>
+                      {formatChecklistTaskStatus(row.status)}
                     </span>
                   </td>
                   <td>
-                    <Link className="btn btn-sm btn-info" to={`/checklists/tasks/${row._id}`}>
-                      Open
-                    </Link>
+                    {String(row.status || "").trim().toLowerCase() === "waiting_dependency" ? (
+                      <button type="button" className="btn btn-sm btn-secondary" disabled>
+                        Locked
+                      </button>
+                    ) : (
+                      <Link className="btn btn-sm btn-info" to={`/checklists/tasks/${row._id}`}>
+                        Open
+                      </Link>
+                    )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

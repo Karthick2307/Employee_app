@@ -8,6 +8,15 @@ const companySchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    directorNames: {
+      type: [
+        {
+          type: String,
+          trim: true,
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

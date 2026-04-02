@@ -2,6 +2,14 @@
   "name": "check-list",
   "version": "1.0.0",
   "description": "",
+  "homepage": "https://github.com/Karthick2307/Employee_app#readme",
+  "bugs": {
+    "url": "https://github.com/Karthick2307/Employee_app/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Karthick2307/Employee_app.git"
+  },
   "license": "ISC",
   "author": "",
   "type": "commonjs",

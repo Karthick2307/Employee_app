@@ -6,6 +6,21 @@ const { auth, isAdmin } = require("../middleware/auth");
 
 const MAX_SUB_LEVELS = 4;
 const normalizeName = (value) => String(value || "").trim();
+const isValidObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(normalizeName(value));
+const getRequesterRole = (user) =>
+  String(user?.role || "")
+    .trim()
+    .toLowerCase();
+const getChecklistUserSiteId = (user) => {
+  const role = getRequesterRole(user);
+  const siteId = normalizeName(user?.siteId);
+
+  if (role === "admin" || role === "employee") return "";
+  if (!(role === "user" || Boolean(user?.checklistMasterAccess))) return "";
+  if (!isValidObjectId(siteId)) return "";
+
+  return siteId;
+};
 const parseNameList = (value) => {
   const raw =
     Array.isArray(value)
@@ -55,6 +70,8 @@ const resolveHeadNames = async ({
   headEmployeeIds,
   fallbackHeadNames,
   requireAtLeastOne = false,
+  invalidSelectionMessage = "One or more selected site heads are invalid",
+  requiredMessage = "Sub site head name is required",
 }) => {
   const employeeIds = parseEmployeeIds(headEmployeeIds);
   const fallbackNames = parseNameList(fallbackHeadNames);
@@ -62,7 +79,7 @@ const resolveHeadNames = async ({
   if (!employeeIds.length) {
     const headNames = fallbackNames;
     if (requireAtLeastOne && !headNames.length) {
-      return { error: "Sub site head name is required" };
+      return { error: requiredMessage };
     }
     return { headNames };
   }
@@ -73,7 +90,7 @@ const resolveHeadNames = async ({
   );
 
   if (employees.length !== employeeIds.length) {
-    return { error: "One or more selected site heads are invalid" };
+    return { error: invalidSelectionMessage };
   }
 
   const byId = new Map(employees.map((employee) => [String(employee._id), employee]));
@@ -91,7 +108,7 @@ const resolveHeadNames = async ({
   });
 
   if (requireAtLeastOne && !headNames.length) {
-    return { error: "Sub site head name is required" };
+    return { error: requiredMessage };
   }
 
   return { headNames };
@@ -145,7 +162,10 @@ const findSubSiteNode = (rows = [], subId, level = 1) => {
 
 router.get("/", auth, async (req, res) => {
   try {
-    const rows = await Site.find().sort({ companyName: 1, name: 1 });
+    const restrictedSiteId = getChecklistUserSiteId(req.user);
+    const rows = await Site.find(
+      restrictedSiteId ? { _id: restrictedSiteId } : {}
+    ).sort({ companyName: 1, name: 1 });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load sites" });
@@ -159,6 +179,12 @@ router.post("/", auth, isAdmin, async (req, res) => {
     const { headNames, error: headError } = await resolveHeadNames({
       headEmployeeIds: req.body.headEmployeeIds,
       fallbackHeadNames: req.body.headNames,
+    });
+    const { headNames: siteLeadNames, error: siteLeadError } = await resolveHeadNames({
+      headEmployeeIds: req.body.siteLeadEmployeeIds,
+      fallbackHeadNames: req.body.siteLeadNames,
+      invalidSelectionMessage: "One or more selected site leads are invalid",
+      requiredMessage: "Site lead name is required",
     });
 
     if (!companyName) {
@@ -178,6 +204,9 @@ router.post("/", auth, isAdmin, async (req, res) => {
     if (headError) {
       return res.status(400).json({ message: headError });
     }
+    if (siteLeadError) {
+      return res.status(400).json({ message: siteLeadError });
+    }
 
     const companyExists = await Company.exists({ name: companyName });
     if (!companyExists) {
@@ -190,7 +219,12 @@ router.post("/", auth, isAdmin, async (req, res) => {
       return res.status(409).json({ message: "Site already exists" });
     }
 
-    const created = await Site.create({ companyName, name: siteName, headNames });
+    const created = await Site.create({
+      companyName,
+      name: siteName,
+      headNames,
+      siteLeadNames,
+    });
     res.status(201).json(created);
   } catch (err) {
     if (err?.code === 11000) {
@@ -208,9 +242,16 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
       headEmployeeIds: req.body.headEmployeeIds,
       fallbackHeadNames: req.body.headNames,
     });
+    const { headNames: siteLeadNames, error: siteLeadError } = await resolveHeadNames({
+      headEmployeeIds: req.body.siteLeadEmployeeIds,
+      fallbackHeadNames: req.body.siteLeadNames,
+      invalidSelectionMessage: "One or more selected site leads are invalid",
+      requiredMessage: "Site lead name is required",
+    });
     if (!companyName) return res.status(400).json({ message: "Company name is required" });
     if (!name) return res.status(400).json({ message: "Site name is required" });
     if (headError) return res.status(400).json({ message: headError });
+    if (siteLeadError) return res.status(400).json({ message: siteLeadError });
 
     const companyExists = await Company.exists({ name: companyName });
     if (!companyExists) {
@@ -219,7 +260,7 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
 
     const updated = await Site.findByIdAndUpdate(
       req.params.id,
-      { companyName, name, headNames },
+      { companyName, name, headNames, siteLeadNames },
       { new: true, runValidators: true }
     );
 

@@ -56,6 +56,25 @@ const checklistSchema = new mongoose.Schema(
       max: 10,
       default: 1,
     },
+    enableMark: {
+      type: Boolean,
+      default: false,
+    },
+    baseMark: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    delayPenaltyPerDay: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    advanceBonusPerDay: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     checklistSourceSite: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Site",
@@ -135,6 +154,27 @@ const checklistSchema = new mongoose.Schema(
       enum: ["high", "medium", "low"],
       default: "medium",
       index: true,
+    },
+    isDependentTask: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    dependencyChecklistId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Checklist",
+      default: null,
+      index: true,
+    },
+    dependencyTaskNumber: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    targetDayCount: {
+      type: Number,
+      default: null,
+      min: 0.01,
     },
     checklistItems: {
       type: [checklistItemSchema],

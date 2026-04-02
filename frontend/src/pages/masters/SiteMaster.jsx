@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../../api/axios";
+import SearchableCheckboxSelector from "../../components/SearchableCheckboxSelector";
 import { formatSiteLabel } from "../../utils/siteDisplay";
 
 const parseNames = (value) => {
@@ -75,6 +76,8 @@ export default function SiteMaster() {
   const [name, setName] = useState("");
   const [headEmployeeIds, setHeadEmployeeIds] = useState([]);
   const [legacyHeadNames, setLegacyHeadNames] = useState([]);
+  const [siteLeadEmployeeIds, setSiteLeadEmployeeIds] = useState([]);
+  const [legacySiteLeadNames, setLegacySiteLeadNames] = useState([]);
   const [editingId, setEditingId] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -146,12 +149,22 @@ export default function SiteMaster() {
       ),
     [employees]
   );
+  const employeeSelectionOptions = useMemo(
+    () =>
+      employeeOptions.map((employee) => ({
+        value: employee._id,
+        label: getEmployeeHeadLabel(employee),
+      })),
+    [employeeOptions]
+  );
 
   const resetForm = () => {
     setCompanyName("");
     setName("");
     setHeadEmployeeIds([]);
     setLegacyHeadNames([]);
+    setSiteLeadEmployeeIds([]);
+    setLegacySiteLeadNames([]);
     setEditingId("");
   };
 
@@ -174,6 +187,8 @@ export default function SiteMaster() {
           name: trimmedName,
           headEmployeeIds,
           headNames: legacyHeadNames,
+          siteLeadEmployeeIds,
+          siteLeadNames: legacySiteLeadNames,
         });
       } else {
         await api.post("/sites", {
@@ -181,6 +196,8 @@ export default function SiteMaster() {
           name: trimmedName,
           headEmployeeIds,
           headNames: legacyHeadNames,
+          siteLeadEmployeeIds,
+          siteLeadNames: legacySiteLeadNames,
         });
       }
 
@@ -196,10 +213,14 @@ export default function SiteMaster() {
   const editRow = (row) => {
     const { selectedEmployeeIds, legacyHeadNames: legacyNames } =
       buildHeadSelectionState(row.headNames || [], employees);
+    const { selectedEmployeeIds: selectedSiteLeadIds, legacyHeadNames: legacySiteLeadLabels } =
+      buildHeadSelectionState(row.siteLeadNames || [], employees);
     setCompanyName(row.companyName || "");
     setName(row.name || "");
     setHeadEmployeeIds(selectedEmployeeIds);
     setLegacyHeadNames(legacyNames);
+    setSiteLeadEmployeeIds(selectedSiteLeadIds);
+    setLegacySiteLeadNames(legacySiteLeadLabels);
     setEditingId(row._id);
   };
 
@@ -378,27 +399,27 @@ export default function SiteMaster() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <label className="form-label fw-semibold">Site Heads</label>
-        <select
-          className="form-select mb-1"
-          multiple
-          size={Math.min(8, Math.max(4, employeeOptions.length || 4))}
-          value={headEmployeeIds}
-          onChange={(e) =>
-            setHeadEmployeeIds(
-              Array.from(e.target.selectedOptions, (option) => option.value)
-            )
-          }
-        >
-          {employeeOptions.map((employee) => (
-            <option key={employee._id} value={employee._id}>
-              {getEmployeeHeadLabel(employee)}
-            </option>
-          ))}
-        </select>
-        <small className="text-muted d-block mb-2">
-          Select one or multiple employees from Employee Master.
-        </small>
+        <SearchableCheckboxSelector
+          label="Site Heads"
+          helperText="Pick one or more site heads from the employee master."
+          options={employeeSelectionOptions}
+          selectedValues={headEmployeeIds}
+          onChange={setHeadEmployeeIds}
+          searchPlaceholder="Search site heads"
+          emptyMessage="No employees are available to map as site heads yet."
+        />
+
+        <div className="mt-3">
+          <SearchableCheckboxSelector
+            label="Site Leads"
+            helperText="Pick one or more site leads from the employee master."
+            options={employeeSelectionOptions}
+            selectedValues={siteLeadEmployeeIds}
+            onChange={setSiteLeadEmployeeIds}
+            searchPlaceholder="Search site leads"
+            emptyMessage="No employees are available to map as site leads yet."
+          />
+        </div>
 
         {legacyHeadNames.length > 0 && (
           <div className="alert alert-warning py-2 mb-2 d-flex justify-content-between align-items-center gap-2">
@@ -407,6 +428,19 @@ export default function SiteMaster() {
               type="button"
               className="btn btn-sm btn-outline-warning"
               onClick={() => setLegacyHeadNames([])}
+            >
+              Clear Legacy
+            </button>
+          </div>
+        )}
+
+        {legacySiteLeadNames.length > 0 && (
+          <div className="alert alert-warning py-2 mb-2 d-flex justify-content-between align-items-center gap-2">
+            <span>Legacy site leads preserved: {legacySiteLeadNames.join(", ")}</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-warning"
+              onClick={() => setLegacySiteLeadNames([])}
             >
               Clear Legacy
             </button>
@@ -432,6 +466,7 @@ export default function SiteMaster() {
             <th>Company</th>
             <th>Site</th>
             <th>Site Heads</th>
+            <th>Site Leads</th>
             <th>Sub Sites</th>
             <th width="290">Actions</th>
           </tr>
@@ -443,6 +478,7 @@ export default function SiteMaster() {
               <td>{s.companyName || "-"}</td>
               <td>{s.name}</td>
               <td>{s.headNames?.length ? s.headNames.join(", ") : "-"}</td>
+              <td>{s.siteLeadNames?.length ? s.siteLeadNames.join(", ") : "-"}</td>
               <td>
                 {s.subSites?.length
                   ? s.subSites
@@ -505,27 +541,15 @@ export default function SiteMaster() {
                 onChange={(e) => setSubName(e.target.value)}
                 rows={2}
               />
-              <label className="form-label fw-semibold">Sub Site Heads</label>
-              <select
-                className="form-select"
-                multiple
-                size={Math.min(8, Math.max(4, employeeOptions.length || 4))}
-                value={subHeadEmployeeIds}
-                onChange={(e) =>
-                  setSubHeadEmployeeIds(
-                    Array.from(e.target.selectedOptions, (option) => option.value)
-                  )
-                }
-              >
-                {employeeOptions.map((employee) => (
-                  <option key={employee._id} value={employee._id}>
-                    {getEmployeeHeadLabel(employee)}
-                  </option>
-                ))}
-              </select>
-              <small className="text-muted d-block mt-1">
-                Select one or multiple employees from Employee Master.
-              </small>
+              <SearchableCheckboxSelector
+                label="Sub Site Heads"
+                helperText="Pick one or more sub site heads from the employee master."
+                options={employeeSelectionOptions}
+                selectedValues={subHeadEmployeeIds}
+                onChange={setSubHeadEmployeeIds}
+                searchPlaceholder="Search sub site heads"
+                emptyMessage="No employees are available to map as sub site heads yet."
+              />
               {legacySubHeadNames.length > 0 && (
                 <div className="alert alert-warning py-2 mt-2 mb-0 d-flex justify-content-between align-items-center gap-2">
                   <span>Legacy sub site heads preserved: {legacySubHeadNames.join(", ")}</span>

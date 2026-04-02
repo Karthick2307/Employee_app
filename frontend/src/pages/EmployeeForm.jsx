@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import SearchableCheckboxSelector from "../components/SearchableCheckboxSelector";
 import { formatSiteLabel } from "../utils/siteDisplay";
 
 const flattenSubDepartments = (rows = [], trail = [], department = null) =>
@@ -12,10 +13,9 @@ const flattenSubDepartments = (rows = [], trail = [], department = null) =>
         name: item.name,
         departmentId: department?._id || "",
         departmentName: department?.name || "",
-        label:
-          department?.name
-            ? `${department.name} > ${nextTrail.join(" > ")}`
-            : nextTrail.join(" > "),
+        label: department?.name
+          ? `${department.name} > ${nextTrail.join(" > ")}`
+          : nextTrail.join(" > "),
       },
       ...flattenSubDepartments(item.children || [], nextTrail, department),
     ];
@@ -106,6 +106,43 @@ export default function EmployeeForm() {
     loadMasters();
   }, []);
 
+  const departmentOptions = useMemo(
+    () =>
+      departments.map((department) => ({
+        value: department._id,
+        label: department.name,
+      })),
+    [departments]
+  );
+  const subDepartmentOptions = useMemo(
+    () =>
+      subDepartments.map((subDepartment) => ({
+        value: subDepartment._id,
+        label: subDepartment.label,
+        description: subDepartment.departmentName
+          ? `Department: ${subDepartment.departmentName}`
+          : "",
+      })),
+    [subDepartments]
+  );
+  const siteSelectionOptions = useMemo(
+    () =>
+      sitesList.map((site) => ({
+        value: site._id,
+        label: formatSiteLabel(site),
+        description: site.companyName ? `Company: ${site.companyName}` : "",
+      })),
+    [sitesList]
+  );
+  const subSiteSelectionOptions = useMemo(
+    () =>
+      subSiteOptions.map((subSite) => ({
+        value: subSite.value,
+        label: subSite.label,
+      })),
+    [subSiteOptions]
+  );
+
   const loadMasters = async () => {
     try {
       const [deptRes, desigRes, siteRes, employeeRes] = await Promise.all([
@@ -125,63 +162,67 @@ export default function EmployeeForm() {
     }
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-
+  const handleChange = (event) => {
+    const { name, value } = event.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleDepartmentsChange = (e) => {
-    const selectedDepartmentIds = normalizeSelectionValues(
-      Array.from(e.target.selectedOptions, (option) => option.value)
-    );
-    const nextOptions = buildSubDepartmentOptions(departments, selectedDepartmentIds);
+  const handleDepartmentsChange = (selectedDepartmentIds) => {
+    const normalizedValues = normalizeSelectionValues(selectedDepartmentIds);
+    const nextOptions = buildSubDepartmentOptions(departments, normalizedValues);
     const allowedValues = new Set(nextOptions.map((item) => String(item._id)));
 
     setSubDepartments(nextOptions);
     setForm((prev) => ({
       ...prev,
-      department: selectedDepartmentIds,
-      subDepartment: (prev.subDepartment || []).filter((value) => allowedValues.has(String(value))),
+      department: normalizedValues,
+      subDepartment: (prev.subDepartment || []).filter((value) =>
+        allowedValues.has(String(value))
+      ),
     }));
   };
 
-  const handleSubDepartmentsChange = (e) => {
-    const selectedValues = normalizeSelectionValues(
-      Array.from(e.target.selectedOptions, (option) => option.value)
-    );
-    setForm((prev) => ({ ...prev, subDepartment: selectedValues }));
+  const handleSubDepartmentsChange = (selectedValues) => {
+    setForm((prev) => ({
+      ...prev,
+      subDepartment: normalizeSelectionValues(selectedValues),
+    }));
   };
 
-  const handleSitesChange = (e) => {
-    const selectedSiteIds = Array.from(e.target.selectedOptions, (option) => option.value);
-    const nextOptions = buildSubSiteOptions(sitesList, selectedSiteIds);
+  const handleSitesChange = (selectedSiteIds) => {
+    const normalizedValues = normalizeSelectionValues(selectedSiteIds);
+    const nextOptions = buildSubSiteOptions(sitesList, normalizedValues);
     const allowedValues = new Set(nextOptions.map((item) => item.value));
 
     setSubSiteOptions(nextOptions);
     setForm((prev) => ({
       ...prev,
-      sites: selectedSiteIds,
+      sites: normalizedValues,
       subSites: (prev.subSites || []).filter((value) => allowedValues.has(value)),
     }));
   };
 
-  const handleSubSitesChange = (e) => {
-    const selectedSubSiteValues = Array.from(
-      e.target.selectedOptions,
-      (option) => option.value
-    );
-    setForm((prev) => ({ ...prev, subSites: selectedSubSiteValues }));
+  const handleSubSitesChange = (selectedSubSiteValues) => {
+    setForm((prev) => ({
+      ...prev,
+      subSites: normalizeSelectionValues(selectedSubSiteValues),
+    }));
   };
 
-  const handlePhotoChange = (e) => {
-    const file = e.target.files?.[0] || null;
+  const handlePhotoChange = (event) => {
+    const file = event.target.files?.[0] || null;
     setPhoto(file);
     setPhotoPreview(file ? URL.createObjectURL(file) : "");
   };
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const submit = async (event) => {
+    event.preventDefault();
+
+    if (!form.department.length) {
+      alert("Select at least one department.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -221,230 +262,246 @@ export default function EmployeeForm() {
 
   return (
     <div className="container py-4">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h4 className="mb-1">Add Employee</h4>
-          <p className="text-muted mb-0">Use left and right panels to complete details.</p>
+      <div className="page-intro-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <div className="page-kicker">Employees</div>
+            <h4 className="mb-1">Add Employee</h4>
+            <p className="page-subtitle mb-0">
+              Complete the basic details first, then use the searchable selectors to map
+              departments, sites, and optional sub levels.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={() => navigate("/employees")}
+          >
+            Back to Employees
+          </button>
         </div>
-        <button
-          type="button"
-          className="btn btn-outline-secondary"
-          onClick={() => navigate("/employees")}
-        >
-          Back
-        </button>
       </div>
 
       <form onSubmit={submit} encType="multipart/form-data">
         <div className="row g-3">
-          <div className="col-12 col-lg-6">
-            <div className="card h-100 shadow-sm">
-              <div className="card-header bg-light fw-semibold">Basic Information</div>
-              <div className="card-body">
-                <label className="form-label">Employee Code *</label>
-                <input
-                  className="form-control mb-2"
-                  name="employeeCode"
-                  placeholder="Employee Code"
-                  value={form.employeeCode}
-                  onChange={handleChange}
-                  required
-                />
-
-                <label className="form-label">Employee Name *</label>
-                <input
-                  className="form-control mb-2"
-                  name="employeeName"
-                  placeholder="Employee Name"
-                  value={form.employeeName}
-                  onChange={handleChange}
-                  required
-                />
-
-                <label className="form-label">Mobile</label>
-                <input
-                  className="form-control mb-2"
-                  name="mobile"
-                  placeholder="Mobile"
-                  value={form.mobile}
-                  onChange={handleChange}
-                />
-
-                <label className="form-label">Email</label>
-                <input
-                  className="form-control mb-2"
-                  name="email"
-                  placeholder="Email"
-                  value={form.email}
-                  onChange={handleChange}
-                />
-
-                <label className="form-label">Login Password *</label>
-                <input
-                  className="form-control mb-2"
-                  name="password"
-                  type="password"
-                  placeholder="Employee login password"
-                  value={form.password}
-                  onChange={handleChange}
-                  required
-                />
-                <small className="text-muted d-block mb-3">
-                  Employees can log in using Employee Code, Employee Name, or Email with this
-                  password.
-                </small>
-
-                <label className="form-label">Date Of Joining</label>
-                <input
-                  className="form-control mb-3"
-                  type="date"
-                  name="dateOfJoining"
-                  value={form.dateOfJoining}
-                  onChange={handleChange}
-                />
-
-                <label className="form-label fw-semibold">Profile Photo</label>
-                <input
-                  className="form-control mb-2"
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg"
-                  onChange={handlePhotoChange}
-                />
-                {photoPreview && (
-                  <div className="mt-2 d-flex align-items-center gap-2">
-                    <img
-                      src={photoPreview}
-                      alt="preview"
-                      width="72"
-                      height="72"
-                      style={{ borderRadius: "50%", objectFit: "cover", border: "1px solid #dee2e6" }}
-                    />
-                    <small className="text-muted">Photo preview</small>
+          <div className="col-12 col-xl-5">
+            <div className="soft-card h-100">
+              <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
+                <div>
+                  <h5 className="mb-1">Basic Information</h5>
+                  <div className="form-help">
+                    Required fields are marked by the form controls below.
                   </div>
-                )}
+                </div>
+                <span className="summary-chip summary-chip--neutral">Login ready</span>
               </div>
+
+              <label className="form-label">Employee Code *</label>
+              <input
+                className="form-control mb-3"
+                name="employeeCode"
+                placeholder="Employee Code"
+                value={form.employeeCode}
+                onChange={handleChange}
+                required
+              />
+
+              <label className="form-label">Employee Name *</label>
+              <input
+                className="form-control mb-3"
+                name="employeeName"
+                placeholder="Employee Name"
+                value={form.employeeName}
+                onChange={handleChange}
+                required
+              />
+
+              <div className="row g-3">
+                <div className="col-md-6">
+                  <label className="form-label">Mobile</label>
+                  <input
+                    className="form-control"
+                    name="mobile"
+                    placeholder="Mobile"
+                    value={form.mobile}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label">Date Of Joining</label>
+                  <input
+                    className="form-control"
+                    type="date"
+                    name="dateOfJoining"
+                    value={form.dateOfJoining}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <label className="form-label mt-3">Email</label>
+              <input
+                className="form-control mb-3"
+                name="email"
+                placeholder="Email"
+                value={form.email}
+                onChange={handleChange}
+              />
+
+              <label className="form-label">Login Password *</label>
+              <input
+                className="form-control mb-2"
+                name="password"
+                type="password"
+                placeholder="Employee login password"
+                value={form.password}
+                onChange={handleChange}
+                required
+              />
+              <div className="form-help mb-3">
+                Employees can sign in using employee code, employee name, or email with this
+                password.
+              </div>
+
+              <label className="form-label fw-semibold">Profile Photo</label>
+              <input
+                className="form-control mb-2"
+                type="file"
+                accept="image/png,image/jpeg,image/jpg"
+                onChange={handlePhotoChange}
+              />
+              {photoPreview ? (
+                <div className="mt-3 d-flex align-items-center gap-3">
+                  <img
+                    src={photoPreview}
+                    alt="preview"
+                    width="72"
+                    height="72"
+                    className="app-avatar-preview"
+                  />
+                  <div className="form-help">Photo preview</div>
+                </div>
+              ) : null}
             </div>
           </div>
 
-          <div className="col-12 col-lg-6">
-            <div className="card h-100 shadow-sm">
-              <div className="card-header bg-light fw-semibold">Department And Site Mapping</div>
-              <div className="card-body">
-                <label className="form-label">Departments *</label>
-                <select
-                  className="form-select mb-1"
-                  multiple
-                  size={Math.min(8, Math.max(4, departments.length || 4))}
-                  name="department"
-                  value={form.department}
+          <div className="col-12 col-xl-7">
+            <div className="soft-card h-100">
+              <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
+                <div>
+                  <h5 className="mb-1">Department And Site Mapping</h5>
+                  <div className="form-help">
+                    Use checkboxes instead of holding Ctrl or Cmd for multiple selections.
+                  </div>
+                </div>
+                <span className="summary-chip">
+                  {form.department.length + form.sites.length + form.subSites.length} mappings
+                </span>
+              </div>
+
+              <div className="mb-3">
+                <SearchableCheckboxSelector
+                  label="Departments"
+                  helperText="Pick one or more departments for this employee."
+                  options={departmentOptions}
+                  selectedValues={form.department}
                   onChange={handleDepartmentsChange}
-                  required
-                >
-                  {departments.map((d) => (
-                    <option key={d._id} value={d._id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-                <small className="text-muted mb-2 d-block">
-                  Hold Ctrl (Windows) or Cmd (Mac) to select multiple departments.
-                </small>
+                  searchPlaceholder="Search departments"
+                  emptyMessage="No departments available yet."
+                />
+              </div>
 
-                <label className="form-label">Sub Departments (Optional)</label>
-                <select
-                  className="form-select mb-1"
-                  multiple
-                  size={Math.min(8, Math.max(4, subDepartments.length || 4))}
-                  name="subDepartment"
-                  value={form.subDepartment}
+              <div className="mb-3">
+                <SearchableCheckboxSelector
+                  label="Sub Departments"
+                  helperText={
+                    form.department.length
+                      ? "Optional. Choose matching sub departments from the selected departments."
+                      : "Select one or more departments first."
+                  }
+                  options={subDepartmentOptions}
+                  selectedValues={form.subDepartment}
                   onChange={handleSubDepartmentsChange}
-                  disabled={!form.department.length || !subDepartments.length}
-                >
-                  {subDepartments.length === 0 ? (
-                    <option value="" disabled>
-                      {form.department.length
-                        ? "No sub departments available"
-                        : "Select department first"}
-                    </option>
-                  ) : (
-                    subDepartments.map((sub) => (
-                      <option key={sub._id} value={sub._id}>
-                        {sub.label}
+                  searchPlaceholder="Search sub departments"
+                  emptyMessage={
+                    form.department.length
+                      ? "No sub departments are available for the selected departments."
+                      : "Select a department to load sub departments."
+                  }
+                  disabled={!form.department.length}
+                />
+              </div>
+
+              <div className="row g-3 mb-3">
+                <div className="col-md-6">
+                  <label className="form-label">Designation *</label>
+                  <select
+                    className="form-select"
+                    name="designation"
+                    value={form.designation}
+                    onChange={handleChange}
+                    required
+                  >
+                    <option value="">Select Designation</option>
+                    {designations.map((designation) => (
+                      <option key={designation._id} value={designation._id}>
+                        {designation.name}
                       </option>
-                    ))
-                  )}
-                </select>
-                <small className="text-muted mb-2 d-block">
-                  Optional. Hold Ctrl (Windows) or Cmd (Mac) to select multiple sub departments.
-                </small>
+                    ))}
+                  </select>
+                </div>
 
-                <label className="form-label">Designation *</label>
-                <select
-                  className="form-select mb-2"
-                  name="designation"
-                  value={form.designation}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">-- Select Designation --</option>
-                  {designations.map((d) => (
-                    <option key={d._id} value={d._id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="col-md-6">
+                  <label className="form-label">Superior Employee</label>
+                  <select
+                    className="form-select"
+                    name="superiorEmployee"
+                    value={form.superiorEmployee}
+                    onChange={handleChange}
+                  >
+                    <option value="">No superior</option>
+                    {superiorEmployees.map((employee) => (
+                      <option key={employee._id} value={employee._id}>
+                        {employee.employeeCode} - {employee.employeeName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-                <label className="form-label">Superior Employee</label>
-                <select
-                  className="form-select mb-3"
-                  name="superiorEmployee"
-                  value={form.superiorEmployee}
-                  onChange={handleChange}
-                >
-                  <option value="">(No superior)</option>
-                  {superiorEmployees.map((employee) => (
-                    <option key={employee._id} value={employee._id}>
-                      {employee.employeeCode} - {employee.employeeName}
-                    </option>
-                  ))}
-                </select>
-
-                <label className="form-label fw-semibold">Employee Sites (Multi Select)</label>
-                <select
-                  className="form-select mb-1"
-                  multiple
-                  size={Math.min(8, Math.max(4, sitesList.length))}
-                  value={form.sites}
+              <div className="mb-3">
+                <SearchableCheckboxSelector
+                  label="Employee Sites"
+                  helperText="Select every site where this employee works."
+                  options={siteSelectionOptions}
+                  selectedValues={form.sites}
                   onChange={handleSitesChange}
-                >
-                  {sitesList.map((site) => (
-                    <option key={site._id} value={site._id}>
-                      {formatSiteLabel(site)}
-                    </option>
-                  ))}
-                </select>
-                <small className="text-muted mb-3 d-block">
-                  Hold Ctrl (Windows) or Cmd (Mac) to select multiple sites.
-                </small>
+                  searchPlaceholder="Search sites"
+                  emptyMessage="No sites are available yet."
+                />
+              </div>
 
-                <label className="form-label fw-semibold">Employee Sub Sites (Multi Select)</label>
-                <select
-                  className="form-select mb-1"
-                  multiple
-                  size={Math.min(8, Math.max(4, subSiteOptions.length || 4))}
-                  value={form.subSites}
+              <div>
+                <SearchableCheckboxSelector
+                  label="Employee Sub Sites"
+                  helperText={
+                    form.sites.length
+                      ? "Optional. Choose the sub sites under the selected sites."
+                      : "Select one or more sites first."
+                  }
+                  options={subSiteSelectionOptions}
+                  selectedValues={form.subSites}
                   onChange={handleSubSitesChange}
-                  disabled={!form.sites.length || !subSiteOptions.length}
-                >
-                  {subSiteOptions.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <small className="text-muted d-block">
-                  Select site first, then choose one or more sub sites.
-                </small>
+                  searchPlaceholder="Search sub sites"
+                  emptyMessage={
+                    form.sites.length
+                      ? "No sub sites are available for the selected sites."
+                      : "Select a site to load sub sites."
+                  }
+                  disabled={!form.sites.length}
+                />
               </div>
             </div>
           </div>
@@ -452,13 +509,13 @@ export default function EmployeeForm() {
           <div className="col-12 d-flex justify-content-end gap-2 mt-1">
             <button
               type="button"
-              className="btn btn-danger"
+              className="btn btn-outline-secondary"
               onClick={() => navigate("/employees")}
             >
-              Close
+              Cancel
             </button>
             <button type="submit" className="btn btn-success" disabled={loading}>
-              {loading ? "Saving..." : "Save"}
+              {loading ? "Saving..." : "Save Employee"}
             </button>
           </div>
         </div>

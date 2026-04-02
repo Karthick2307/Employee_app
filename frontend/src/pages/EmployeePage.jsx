@@ -23,10 +23,16 @@ export default function EmployeeForm() {
   };
 
   return (
-    <div className="container mt-4">
-      <h4>Add Employee</h4>
+    <div className="container mt-4 app-legacy-shell">
+      <div className="page-intro-card mb-4">
+        <div className="page-kicker">Employee</div>
+        <h4 className="mb-1">Add Employee</h4>
+        <p className="page-subtitle mb-0">
+          Create a basic employee record using the legacy quick-entry screen.
+        </p>
+      </div>
 
-      <form onSubmit={submit} className="card p-4 shadow">
+      <form onSubmit={submit} className="app-legacy-card p-4">
         <div className="row">
           <div className="col-md-6 mb-3">
             <label>Employee Code</label>

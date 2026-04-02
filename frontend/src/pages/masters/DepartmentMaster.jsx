@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../../api/axios";
+import SearchableCheckboxSelector from "../../components/SearchableCheckboxSelector";
 
 const parseNames = (value) => {
   const seen = new Set();
@@ -72,6 +73,8 @@ export default function DepartmentMaster() {
   const [employees, setEmployees] = useState([]);
   const [headEmployeeIds, setHeadEmployeeIds] = useState([]);
   const [legacyHeadNames, setLegacyHeadNames] = useState([]);
+  const [departmentLeadEmployeeIds, setDepartmentLeadEmployeeIds] = useState([]);
+  const [legacyDepartmentLeadNames, setLegacyDepartmentLeadNames] = useState([]);
   const [editingId, setEditingId] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -120,11 +123,21 @@ export default function DepartmentMaster() {
       ),
     [employees]
   );
+  const employeeSelectionOptions = useMemo(
+    () =>
+      employeeOptions.map((employee) => ({
+        value: employee._id,
+        label: getEmployeeHeadLabel(employee),
+      })),
+    [employeeOptions]
+  );
 
   const resetDepartmentForm = () => {
     setName("");
     setHeadEmployeeIds([]);
     setLegacyHeadNames([]);
+    setDepartmentLeadEmployeeIds([]);
+    setLegacyDepartmentLeadNames([]);
     setEditingId("");
   };
 
@@ -139,12 +152,16 @@ export default function DepartmentMaster() {
           name: trimmedName,
           headEmployeeIds,
           headNames: legacyHeadNames,
+          departmentLeadEmployeeIds,
+          departmentLeadNames: legacyDepartmentLeadNames,
         });
       } else {
         await api.post("/departments", {
           name: trimmedName,
           headEmployeeIds,
           headNames: legacyHeadNames,
+          departmentLeadEmployeeIds,
+          departmentLeadNames: legacyDepartmentLeadNames,
         });
       }
 
@@ -160,9 +177,15 @@ export default function DepartmentMaster() {
   const editDepartment = (row) => {
     const { selectedEmployeeIds, legacyHeadNames: legacyNames } =
       buildHeadSelectionState(row.headNames || [], employees);
+    const {
+      selectedEmployeeIds: selectedDepartmentLeadIds,
+      legacyHeadNames: legacyDepartmentLeadLabels,
+    } = buildHeadSelectionState(row.departmentLeadNames || [], employees);
     setName(row.name || "");
     setHeadEmployeeIds(selectedEmployeeIds);
     setLegacyHeadNames(legacyNames);
+    setDepartmentLeadEmployeeIds(selectedDepartmentLeadIds);
+    setLegacyDepartmentLeadNames(legacyDepartmentLeadLabels);
     setEditingId(row._id);
   };
 
@@ -315,27 +338,26 @@ export default function DepartmentMaster() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <label className="form-label fw-semibold">Department Heads</label>
-        <select
-          className="form-select mb-1"
-          multiple
-          size={Math.min(8, Math.max(4, employeeOptions.length || 4))}
-          value={headEmployeeIds}
-          onChange={(e) =>
-            setHeadEmployeeIds(
-              Array.from(e.target.selectedOptions, (option) => option.value)
-            )
-          }
-        >
-          {employeeOptions.map((employee) => (
-            <option key={employee._id} value={employee._id}>
-              {getEmployeeHeadLabel(employee)}
-            </option>
-          ))}
-        </select>
-        <small className="text-muted d-block mb-2">
-          Select one or multiple employees from Employee Master.
-        </small>
+        <SearchableCheckboxSelector
+          label="Department Heads"
+          helperText="Pick one or more department heads from the employee master."
+          options={employeeSelectionOptions}
+          selectedValues={headEmployeeIds}
+          onChange={setHeadEmployeeIds}
+          searchPlaceholder="Search department heads"
+          emptyMessage="No employees are available to map as department heads yet."
+        />
+        <div className="mt-3">
+          <SearchableCheckboxSelector
+            label="Department Leads"
+            helperText="Pick one or more department leads from the employee master."
+            options={employeeSelectionOptions}
+            selectedValues={departmentLeadEmployeeIds}
+            onChange={setDepartmentLeadEmployeeIds}
+            searchPlaceholder="Search department leads"
+            emptyMessage="No employees are available to map as department leads yet."
+          />
+        </div>
         {legacyHeadNames.length > 0 && (
           <div className="alert alert-warning py-2 mb-2 d-flex justify-content-between align-items-center gap-2">
             <span>Legacy department heads preserved: {legacyHeadNames.join(", ")}</span>
@@ -343,6 +365,20 @@ export default function DepartmentMaster() {
               type="button"
               className="btn btn-sm btn-outline-warning"
               onClick={() => setLegacyHeadNames([])}
+            >
+              Clear Legacy
+            </button>
+          </div>
+        )}
+        {legacyDepartmentLeadNames.length > 0 && (
+          <div className="alert alert-warning py-2 mb-2 d-flex justify-content-between align-items-center gap-2">
+            <span>
+              Legacy department leads preserved: {legacyDepartmentLeadNames.join(", ")}
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-warning"
+              onClick={() => setLegacyDepartmentLeadNames([])}
             >
               Clear Legacy
             </button>
@@ -366,6 +402,7 @@ export default function DepartmentMaster() {
             <th>#</th>
             <th>Department</th>
             <th>Department Heads</th>
+            <th>Department Leads</th>
             <th>Sub Departments</th>
             <th width="290">Actions</th>
           </tr>
@@ -376,6 +413,9 @@ export default function DepartmentMaster() {
               <td>{i + 1}</td>
               <td>{d.name}</td>
               <td>{d.headNames?.length ? d.headNames.join(", ") : "-"}</td>
+              <td>
+                {d.departmentLeadNames?.length ? d.departmentLeadNames.join(", ") : "-"}
+              </td>
               <td>
                 {d.subDepartments?.length
                   ? d.subDepartments
@@ -438,27 +478,15 @@ export default function DepartmentMaster() {
                 onChange={(e) => setSubName(e.target.value)}
                 rows={2}
               />
-              <label className="form-label fw-semibold">Sub Department Heads</label>
-              <select
-                className="form-select"
-                multiple
-                size={Math.min(8, Math.max(4, employeeOptions.length || 4))}
-                value={subHeadEmployeeIds}
-                onChange={(e) =>
-                  setSubHeadEmployeeIds(
-                    Array.from(e.target.selectedOptions, (option) => option.value)
-                  )
-                }
-              >
-                {employeeOptions.map((employee) => (
-                  <option key={employee._id} value={employee._id}>
-                    {getEmployeeHeadLabel(employee)}
-                  </option>
-                ))}
-              </select>
-              <small className="text-muted d-block mt-1">
-                Select one or multiple employees from Employee Master.
-              </small>
+              <SearchableCheckboxSelector
+                label="Sub Department Heads"
+                helperText="Pick one or more sub department heads from the employee master."
+                options={employeeSelectionOptions}
+                selectedValues={subHeadEmployeeIds}
+                onChange={setSubHeadEmployeeIds}
+                searchPlaceholder="Search sub department heads"
+                emptyMessage="No employees are available to map as sub department heads yet."
+              />
               {legacySubHeadNames.length > 0 && (
                 <div className="alert alert-warning py-2 mt-2 mb-0 d-flex justify-content-between align-items-center gap-2">
                   <span>

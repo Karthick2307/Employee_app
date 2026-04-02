@@ -3,9 +3,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
   formatApprovalLabel,
+  formatChecklistDependencyLabel,
+  formatChecklistScoreLabel,
   formatEmployeeLabel,
+  formatMarkValue,
   formatPriorityLabel,
   formatScheduleLabel,
+  formatTargetDayCountLabel,
 } from "../../utils/checklistDisplay";
 import { getCustomRepeatSummary } from "../../utils/checklistRepeat";
 import { formatDepartmentList } from "../../utils/departmentDisplay";
@@ -13,11 +17,17 @@ import { formatDepartmentList } from "../../utils/departmentDisplay";
 const defaultForm = {
   checklistNumber: "",
   checklistName: "",
-  checklistMark: "1",
+  enableMark: false,
+  baseMark: "",
+  delayPenaltyPerDay: "0.5",
+  advanceBonusPerDay: "0.5",
   checklistSourceSite: "",
   priority: "medium",
   assignedToEmployee: "",
   employeeAssignedSite: "",
+  isDependentTask: false,
+  dependencyChecklistId: "",
+  targetDayCount: "",
   scheduleType: "daily",
   startDate: "",
   scheduleTime: "09:00",
@@ -108,15 +118,51 @@ const getUniqueSites = (employees = []) => {
 
 const getChecklistSiteName = (site) => String(site?.name || "").trim();
 
+const flattenSubDepartments = (rows = [], trail = [], department = null) =>
+  rows.flatMap((item) => {
+    const nextTrail = [...trail, item.name];
+
+    return [
+      {
+        _id: item._id,
+        name: item.name,
+        departmentId: department?._id || "",
+        departmentName: department?.name || "",
+        label: department?.name
+          ? `${department.name} > ${nextTrail.join(" > ")}`
+          : nextTrail.join(" > "),
+      },
+      ...flattenSubDepartments(item.children || [], nextTrail, department),
+    ];
+  });
+
+const buildSubDepartmentOptions = (departmentRows = [], selectedDepartmentId = "") =>
+  (departmentRows || [])
+    .filter((department) => String(department._id) === String(selectedDepartmentId || ""))
+    .flatMap((department) =>
+      flattenSubDepartments(department.subDepartments || [], [], department)
+    );
+
 export default function ChecklistCreate({ mode = "create" }) {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditMode = mode === "edit" && Boolean(id);
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+  const currentUserRole = String(currentUser?.role || "").trim().toLowerCase();
+  const isAdminChecklistUser = currentUserRole === "admin";
+  const usesApprovalRequestFlow = !isAdminChecklistUser;
+  const restrictedChecklistSiteId =
+    currentUserRole !== "admin" &&
+    currentUserRole !== "employee" &&
+    (currentUserRole === "user" || Boolean(currentUser?.checklistMasterAccess))
+      ? String(currentUser?.siteId || "").trim()
+      : "";
 
   const [form, setForm] = useState(defaultForm);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [siteOptions, setSiteOptions] = useState([]);
+  const [dependencyChecklists, setDependencyChecklists] = useState([]);
   const [items, setItems] = useState([createItemRow()]);
   const [approvalRows, setApprovalRows] = useState([createApprovalRow()]);
   const [loading, setLoading] = useState(false);
@@ -124,6 +170,7 @@ export default function ChecklistCreate({ mode = "create" }) {
   const [numberLoading, setNumberLoading] = useState(false);
   const [showWorkflowMapping, setShowWorkflowMapping] = useState(false);
   const [workflowDepartment, setWorkflowDepartment] = useState("");
+  const [workflowSubDepartment, setWorkflowSubDepartment] = useState("");
   const [workflowSearch, setWorkflowSearch] = useState("");
   const [workflowSelectedEmployeeIds, setWorkflowSelectedEmployeeIds] = useState([]);
 
@@ -150,6 +197,20 @@ export default function ChecklistCreate({ mode = "create" }) {
       siteOptions.find((site) => String(site._id) === String(form.checklistSourceSite)) || null,
     [form.checklistSourceSite, siteOptions]
   );
+  const availableDependencyChecklists = useMemo(
+    () =>
+      dependencyChecklists.filter(
+        (checklist) => String(checklist._id) !== String(id || "")
+      ),
+    [dependencyChecklists, id]
+  );
+  const selectedDependencyChecklist = useMemo(
+    () =>
+      availableDependencyChecklists.find(
+        (checklist) => String(checklist._id) === String(form.dependencyChecklistId)
+      ) || null,
+    [availableDependencyChecklists, form.dependencyChecklistId]
+  );
   const customScheduleSummary = useMemo(
     () =>
       getCustomRepeatSummary({
@@ -167,6 +228,10 @@ export default function ChecklistCreate({ mode = "create" }) {
       form.repeatMonthOfYear,
     ]
   );
+  const workflowSubDepartmentOptions = useMemo(
+    () => buildSubDepartmentOptions(departments, workflowDepartment),
+    [departments, workflowDepartment]
+  );
 
   useEffect(() => {
     const loadPage = async () => {
@@ -177,28 +242,58 @@ export default function ChecklistCreate({ mode = "create" }) {
           api.get("/employees", { params: { status: "active" } }),
           api.get("/departments"),
           api.get("/sites"),
+          api.get("/checklists"),
         ];
 
         if (isEditMode) {
           requests.push(api.get(`/checklists/${id}`));
         }
 
-        const [employeeRes, departmentRes, siteRes, checklistRes] = await Promise.all(requests);
+        const [employeeRes, departmentRes, siteRes, checklistOptionsRes, checklistRes] =
+          await Promise.all(requests);
         const employeeRows = Array.isArray(employeeRes.data) ? employeeRes.data : [];
         const departmentRows = Array.isArray(departmentRes.data) ? departmentRes.data : [];
         const siteRows = Array.isArray(siteRes.data) ? siteRes.data : [];
+        const dependencyChecklistRows = Array.isArray(checklistOptionsRes.data)
+          ? checklistOptionsRes.data
+          : [];
 
         setEmployees(employeeRows);
         setDepartments(departmentRows);
         setSiteOptions(siteRows);
+        setDependencyChecklists(dependencyChecklistRows);
 
         if (checklistRes?.data) {
           const checklist = checklistRes.data;
+          const hasStoredBaseMark =
+            checklist.baseMark !== null && checklist.baseMark !== undefined;
+          const hasLegacyChecklistMark =
+            checklist.checklistMark !== null && checklist.checklistMark !== undefined;
+          const enableMark =
+            typeof checklist.enableMark === "boolean"
+              ? checklist.enableMark
+              : hasStoredBaseMark || hasLegacyChecklistMark;
 
           setForm({
             checklistNumber: checklist.checklistNumber || "",
             checklistName: checklist.checklistName || "",
-            checklistMark: String(checklist.checklistMark || 1),
+            enableMark,
+            baseMark:
+              checklist.baseMark !== null && checklist.baseMark !== undefined
+                ? String(checklist.baseMark)
+                : checklist.checklistMark !== null && checklist.checklistMark !== undefined
+                ? String(checklist.checklistMark)
+                : "",
+            delayPenaltyPerDay:
+              checklist.delayPenaltyPerDay !== null &&
+              checklist.delayPenaltyPerDay !== undefined
+                ? String(checklist.delayPenaltyPerDay)
+                : "0.5",
+            advanceBonusPerDay:
+              checklist.advanceBonusPerDay !== null &&
+              checklist.advanceBonusPerDay !== undefined
+                ? String(checklist.advanceBonusPerDay)
+                : "0.5",
             checklistSourceSite:
               checklist.checklistSourceSite?._id || checklist.checklistSourceSite || "",
             priority: checklist.priority || "medium",
@@ -206,7 +301,14 @@ export default function ChecklistCreate({ mode = "create" }) {
               checklist.assignedToEmployee?._id || checklist.assignedToEmployee || "",
             employeeAssignedSite:
               checklist.employeeAssignedSite?._id || checklist.employeeAssignedSite || "",
-            scheduleType: checklist.scheduleType || "daily",
+        isDependentTask: checklist.isDependentTask === true,
+        dependencyChecklistId:
+          checklist.dependencyChecklistId?._id || checklist.dependencyChecklistId || "",
+        targetDayCount:
+          checklist.targetDayCount !== null && checklist.targetDayCount !== undefined
+            ? String(checklist.targetDayCount)
+            : "",
+        scheduleType: checklist.scheduleType || "daily",
             startDate: toIndiaInputDate(checklist.startDate),
             scheduleTime: checklist.scheduleTime || "09:00",
             endDate: toIndiaInputDate(checklist.endDate || checklist.startDate),
@@ -240,6 +342,11 @@ export default function ChecklistCreate({ mode = "create" }) {
               }))
             : [];
           setApprovalRows(checklistApprovals.length ? checklistApprovals : [createApprovalRow()]);
+        } else if (restrictedChecklistSiteId) {
+          setForm((prev) => ({
+            ...prev,
+            employeeAssignedSite: prev.employeeAssignedSite || restrictedChecklistSiteId,
+          }));
         }
       } catch (err) {
         console.error("Checklist form load failed:", err);
@@ -250,7 +357,7 @@ export default function ChecklistCreate({ mode = "create" }) {
     };
 
     void loadPage();
-  }, [id, isEditMode]);
+  }, [id, isEditMode, restrictedChecklistSiteId]);
 
   useEffect(() => {
     if (!form.employeeAssignedSite || isEditMode) {
@@ -284,15 +391,28 @@ export default function ChecklistCreate({ mode = "create" }) {
   }, [form.employeeAssignedSite, isEditMode]);
 
   const handleFormChange = (event) => {
-    const { name, value } = event.target;
+    const { name, value, type, checked } = event.target;
+    const nextValue = type === "checkbox" ? checked : value;
 
-    if (name === "assignedToEmployee") {
-      const nextSelectedEmployee =
-        employees.find((employee) => String(employee._id) === String(value)) || null;
+    if (name === "isDependentTask") {
+      const nextIsDependentTask = value === "yes";
 
       setForm((prev) => ({
         ...prev,
-        assignedToEmployee: value,
+        isDependentTask: nextIsDependentTask,
+        dependencyChecklistId: nextIsDependentTask ? prev.dependencyChecklistId : "",
+        targetDayCount: nextIsDependentTask ? prev.targetDayCount : "",
+      }));
+      return;
+    }
+
+    if (name === "assignedToEmployee") {
+      const nextSelectedEmployee =
+        employees.find((employee) => String(employee._id) === String(nextValue)) || null;
+
+      setForm((prev) => ({
+        ...prev,
+        assignedToEmployee: nextValue,
         employeeAssignedSite:
           nextSelectedEmployee && employeeHasSite(nextSelectedEmployee, prev.employeeAssignedSite)
             ? prev.employeeAssignedSite
@@ -320,9 +440,9 @@ export default function ChecklistCreate({ mode = "create" }) {
 
         return {
           ...prev,
-          employeeAssignedSite: value,
+          employeeAssignedSite: nextValue,
           assignedToEmployee: canKeepEmployee ? prev.assignedToEmployee : "",
-          checklistNumber: !isEditMode && !value ? "" : prev.checklistNumber,
+          checklistNumber: !isEditMode && !nextValue ? "" : prev.checklistNumber,
         };
       });
       return;
@@ -331,16 +451,16 @@ export default function ChecklistCreate({ mode = "create" }) {
     if (name === "scheduleType") {
       setForm((prev) => ({
         ...prev,
-        scheduleType: value,
+        scheduleType: nextValue,
         customRepeatInterval:
-          value === "custom" ? prev.customRepeatInterval || "1" : prev.customRepeatInterval,
+          nextValue === "custom" ? prev.customRepeatInterval || "1" : prev.customRepeatInterval,
         customRepeatUnit:
-          value === "custom" ? prev.customRepeatUnit || "daily" : prev.customRepeatUnit,
+          nextValue === "custom" ? prev.customRepeatUnit || "daily" : prev.customRepeatUnit,
       }));
       return;
     }
 
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: nextValue }));
   };
 
   const updateItem = (rowId, key, value) => {
@@ -373,6 +493,7 @@ export default function ChecklistCreate({ mode = "create" }) {
 
   const openWorkflowMapping = () => {
     setWorkflowDepartment("");
+    setWorkflowSubDepartment("");
     setWorkflowSearch("");
     setWorkflowSelectedEmployeeIds(
       approvalRows.map((row) => row.approvalEmployee).filter(Boolean)
@@ -423,10 +544,21 @@ export default function ChecklistCreate({ mode = "create" }) {
       );
     })
     .filter((employee) => {
+      if (!workflowSubDepartment) return true;
+      return (employee.subDepartment || []).some(
+        (subDepartmentId) => String(subDepartmentId) === String(workflowSubDepartment)
+      );
+    })
+    .filter((employee) => {
       if (!workflowSearch) return true;
 
       const searchValue = workflowSearch.toLowerCase();
-      return [employee.employeeCode, employee.employeeName, employee.departmentDisplay]
+      return [
+        employee.employeeCode,
+        employee.employeeName,
+        employee.departmentDisplay,
+        employee.subDepartmentDisplay,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(searchValue));
     });
@@ -443,7 +575,7 @@ export default function ChecklistCreate({ mode = "create" }) {
       .filter((item) => item.label);
 
     if (!normalizedItems.length) {
-      alert("Add at least one checklist item.");
+      alert("Add at least one task related question.");
       return;
     }
 
@@ -496,6 +628,35 @@ export default function ChecklistCreate({ mode = "create" }) {
       }
     }
 
+    if (form.enableMark) {
+      const baseMark = Number(form.baseMark);
+      const delayPenaltyPerDay = Number(form.delayPenaltyPerDay);
+      const advanceBonusPerDay = Number(form.advanceBonusPerDay);
+
+      if (!form.baseMark || Number.isNaN(baseMark) || baseMark < 0) {
+        alert("Base mark is required when task scoring is enabled.");
+        return;
+      }
+
+      if (
+        form.delayPenaltyPerDay === "" ||
+        Number.isNaN(delayPenaltyPerDay) ||
+        delayPenaltyPerDay < 0
+      ) {
+        alert("Delay penalty per day must be zero or greater.");
+        return;
+      }
+
+      if (
+        form.advanceBonusPerDay === "" ||
+        Number.isNaN(advanceBonusPerDay) ||
+        advanceBonusPerDay < 0
+      ) {
+        alert("Advance bonus per day must be zero or greater.");
+        return;
+      }
+    }
+
     if (form.approvalHierarchy === "default" && !defaultApprover) {
       alert(
         "Approval mapping is incomplete. Configure the employee's Superior Employee before using default approval."
@@ -519,19 +680,45 @@ export default function ChecklistCreate({ mode = "create" }) {
       return;
     }
 
+    if (form.isDependentTask && !form.dependencyChecklistId) {
+      alert("Select the Old Task Number / Previous Task Number for the dependent task.");
+      return;
+    }
+
+    if (
+      form.isDependentTask &&
+      (!form.targetDayCount ||
+        Number.isNaN(Number(form.targetDayCount)) ||
+        Number(form.targetDayCount) <= 0)
+    ) {
+      alert("Target Day Count is required and must be greater than 0.");
+      return;
+    }
+
+    if (isEditMode && String(form.dependencyChecklistId) === String(id)) {
+      alert("The same task cannot depend on itself.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const payload = {
         ...form,
+        isDependentTask: form.isDependentTask,
         checklistItems: normalizedItems,
         approvals: normalizedApprovals,
       };
 
+      let response;
       if (isEditMode) {
-        await api.put(`/checklists/${id}`, payload);
+        response = await api.put(`/checklists/${id}`, payload);
       } else {
-        await api.post("/checklists", payload);
+        response = await api.post("/checklists", payload);
+      }
+
+      if (response?.data?.message) {
+        alert(response.data.message);
       }
 
       navigate("/checklists");
@@ -554,9 +741,13 @@ export default function ChecklistCreate({ mode = "create" }) {
     <div className="container mt-4 mb-5">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
-          <h3 className="mb-1">{isEditMode ? "Edit Checklist Master" : "Create Checklist Master"}</h3>
+          <h3 className="mb-1">
+            {isEditMode ? "Edit Checklist Master" : "Create Checklist Master"}
+          </h3>
           <div className="text-muted">
-            Build the recurring checklist template that will generate employee tasks automatically.
+            {usesApprovalRequestFlow
+              ? "Build the recurring checklist template and submit it for admin approval before it goes live."
+              : "Build the recurring checklist template that will generate employee tasks automatically."}
           </div>
         </div>
 
@@ -585,7 +776,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                 name="employeeAssignedSite"
                 value={form.employeeAssignedSite}
                 onChange={handleFormChange}
-                disabled={!availableSites.length}
+                disabled={Boolean(restrictedChecklistSiteId) || !availableSites.length}
                 required
               >
                 <option value="">Select Site</option>
@@ -617,7 +808,9 @@ export default function ChecklistCreate({ mode = "create" }) {
                 ))}
               </select>
               <small className="text-muted">
-                {form.employeeAssignedSite
+                {restrictedChecklistSiteId
+                  ? "Employees are limited to your mapped site."
+                  : form.employeeAssignedSite
                   ? "Only employees mapped to the selected site are shown."
                   : "All active employees are shown until a site is selected."}
               </small>
@@ -645,19 +838,89 @@ export default function ChecklistCreate({ mode = "create" }) {
             </div>
 
             <div className="col-md-6">
-              <label className="form-label fw-semibold">Checklist Mark</label>
-              <input
-                type="number"
-                min="1"
-                max="10"
-                step="1"
-                className="form-control"
-                name="checklistMark"
-                value={form.checklistMark}
-                onChange={handleFormChange}
-                required
-              />
-              <small className="text-muted">Define the score for one checklist from 1 to 10.</small>
+              <div className="border rounded-3 h-100 p-3">
+                <div className="d-flex justify-content-between align-items-start gap-3">
+                  <div>
+                    <label className="form-label fw-semibold mb-1">Task Scoring</label>
+                    <div className="small text-muted">
+                      Enable marks only when this checklist should contribute to scoring.
+                    </div>
+                  </div>
+
+                  <div className="form-check form-switch mt-1">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      role="switch"
+                      id="enableMark"
+                      name="enableMark"
+                      checked={form.enableMark}
+                      onChange={handleFormChange}
+                    />
+                    <label className="form-check-label" htmlFor="enableMark">
+                      {form.enableMark ? "Enabled" : "Disabled"}
+                    </label>
+                  </div>
+                </div>
+
+                {form.enableMark ? (
+                  <div className="row g-3 mt-1">
+                    <div className="col-12">
+                      <label className="form-label fw-semibold">Base Mark</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        className="form-control"
+                        name="baseMark"
+                        value={form.baseMark}
+                        onChange={handleFormChange}
+                        required={form.enableMark}
+                      />
+                    </div>
+
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">Delay Penalty / Day</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        className="form-control"
+                        name="delayPenaltyPerDay"
+                        value={form.delayPenaltyPerDay}
+                        onChange={handleFormChange}
+                        required={form.enableMark}
+                      />
+                    </div>
+
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">Advance Bonus / Day</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        className="form-control"
+                        name="advanceBonusPerDay"
+                        value={form.advanceBonusPerDay}
+                        onChange={handleFormChange}
+                        required={form.enableMark}
+                      />
+                    </div>
+
+                    <div className="col-12">
+                      <div className="small text-muted">
+                        Example: base {formatMarkValue(form.baseMark)} | delay -
+                        {formatMarkValue(form.delayPenaltyPerDay)}/day | advance +
+                        {formatMarkValue(form.advanceBonusPerDay)}/day
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="alert alert-light border mt-3 mb-0 small">
+                    Marks are disabled. This checklist will be treated as an optional no-score task.
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="col-md-6">
@@ -680,6 +943,89 @@ export default function ChecklistCreate({ mode = "create" }) {
                 Optional. Site names match the same list format shown on employee screens.
               </small>
             </div>
+
+            <div className="col-md-6">
+              <label className="form-label fw-semibold d-block">Dependent Task</label>
+              <div className="d-flex gap-3 pt-2">
+                <label className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="isDependentTask"
+                    value="no"
+                    checked={!form.isDependentTask}
+                    onChange={handleFormChange}
+                  />
+                  <span className="form-check-label">No</span>
+                </label>
+
+                <label className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="isDependentTask"
+                    value="yes"
+                    checked={form.isDependentTask}
+                    onChange={handleFormChange}
+                  />
+                  <span className="form-check-label">Yes</span>
+                </label>
+              </div>
+              <small className="text-muted">
+                When enabled, this task is created only after the previous task is approved or nil approved.
+              </small>
+            </div>
+
+            {form.isDependentTask ? (
+              <>
+                <div className="col-md-8">
+                  <label className="form-label fw-semibold">
+                    Old Task Number / Previous Task Number
+                  </label>
+                  <select
+                    className="form-select"
+                    name="dependencyChecklistId"
+                    value={form.dependencyChecklistId}
+                    onChange={handleFormChange}
+                    required={form.isDependentTask}
+                  >
+                    <option value="">Select Previous Task</option>
+                    {availableDependencyChecklists.map((checklist) => (
+                      <option key={checklist._id} value={checklist._id}>
+                        {[
+                          checklist.checklistNumber,
+                          checklist.checklistName,
+                          formatEmployeeLabel(checklist.assignedToEmployee),
+                        ]
+                          .filter(Boolean)
+                          .join(" | ")}
+                      </option>
+                    ))}
+                  </select>
+                  <small className="text-muted">
+                    This dependent task will be auto-created only once after the selected previous
+                    task reaches final completion.
+                  </small>
+                </div>
+
+                <div className="col-md-4">
+                  <label className="form-label fw-semibold">Target Day Count</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.5"
+                    className="form-control"
+                    name="targetDayCount"
+                    value={form.targetDayCount}
+                    onChange={handleFormChange}
+                    required={form.isDependentTask}
+                  />
+                  <small className="text-muted">
+                    Due date = previous task completed date/time + target day count.
+                  </small>
+                </div>
+              </>
+            ) : null}
 
             <div className="col-md-6">
               <label className="form-label fw-semibold">Schedule Type</label>
@@ -883,14 +1229,14 @@ export default function ChecklistCreate({ mode = "create" }) {
                 <div className="border rounded-4 p-4 bg-light">
                   <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-3">
             <div>
-              <h5 className="mb-1">Checklist Items</h5>
+              <h5 className="mb-1">Task Related Questions</h5>
               <div className="text-muted small">
-                These items are copied into every generated employee task.
+                These questions are copied into every generated employee task and shown for employee answers.
               </div>
             </div>
 
             <button type="button" className="btn btn-sm btn-success" onClick={addItem}>
-              + Add Item
+              + Add Question
             </button>
           </div>
 
@@ -898,8 +1244,8 @@ export default function ChecklistCreate({ mode = "create" }) {
             <table className="table table-bordered align-middle">
               <thead className="table-light">
                 <tr>
-                  <th style={{ width: "30%" }}>Item</th>
-                  <th>Detail</th>
+                  <th style={{ width: "30%" }}>Question</th>
+                  <th>Guidance</th>
                   <th style={{ width: "130px" }}>Required</th>
                   <th style={{ width: "90px" }}>Action</th>
                 </tr>
@@ -912,7 +1258,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                         className="form-control"
                         value={item.label}
                         onChange={(event) => updateItem(item.id, "label", event.target.value)}
-                        placeholder="Item label"
+                        placeholder="Question text"
                       />
                     </td>
                     <td>
@@ -920,7 +1266,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                         className="form-control"
                         value={item.detail}
                         onChange={(event) => updateItem(item.id, "detail", event.target.value)}
-                        placeholder="How should the employee verify this item?"
+                        placeholder="Guidance or example answer for the employee"
                       />
                     </td>
                     <td>
@@ -1052,7 +1398,8 @@ export default function ChecklistCreate({ mode = "create" }) {
 
               <div className="small text-muted mt-2">
                 Use <span className="fw-semibold">Workflow Mapping</span> to pick approvers by
-                department, then fine-tune the level order in the table if needed.
+                department and sub department, then fine-tune the level order in the table if
+                needed.
               </div>
             </>
           )}
@@ -1073,9 +1420,28 @@ export default function ChecklistCreate({ mode = "create" }) {
                       <div className="small text-muted">
                         Priority: {formatPriorityLabel(form.priority)}
                       </div>
-                      <div className="small text-muted">Checklist Mark: {form.checklistMark || "1"}</div>
+                      <div className="small text-muted">
+                        Task Scoring: {formatChecklistScoreLabel(form)}
+                      </div>
                       <div className="small text-muted">
                         Source Site: {getChecklistSiteName(selectedSourceSite) || "-"}
+                      </div>
+                      <div className="small text-muted">
+                        Dependency:{" "}
+                        {form.isDependentTask
+                          ? formatChecklistDependencyLabel({
+                              isDependentTask: true,
+                              dependencyChecklistId: selectedDependencyChecklist,
+                              dependencyTaskNumber:
+                                selectedDependencyChecklist?.checklistNumber || "",
+                            })
+                          : "No"}
+                      </div>
+                      <div className="small text-muted">
+                        Target Day Count:{" "}
+                        {form.isDependentTask
+                          ? formatTargetDayCountLabel(form.targetDayCount)
+                          : "Not required"}
                       </div>
                       <div className="small text-muted">
                         Approval Flow:{" "}
@@ -1115,10 +1481,18 @@ export default function ChecklistCreate({ mode = "create" }) {
           <button type="submit" className="btn btn-primary" disabled={loading}>
             {loading
               ? isEditMode
-                ? "Updating..."
+                ? usesApprovalRequestFlow
+                  ? "Submitting..."
+                  : "Updating..."
+                : usesApprovalRequestFlow
+                ? "Submitting..."
                 : "Creating..."
               : isEditMode
-              ? "Update Checklist Master"
+              ? usesApprovalRequestFlow
+                ? "Submit Edit Request"
+                : "Update Checklist Master"
+              : usesApprovalRequestFlow
+              ? "Submit for Approval"
               : "Create Checklist Master"}
           </button>
         </div>
@@ -1126,9 +1500,8 @@ export default function ChecklistCreate({ mode = "create" }) {
 
       {showWorkflowMapping && (
         <div
-          className="modal fade show d-block"
+          className="modal fade show d-block app-modal-overlay"
           tabIndex="-1"
-          style={{ backgroundColor: "rgba(0, 0, 0, 0.45)" }}
         >
           <div className="modal-dialog modal-lg modal-dialog-scrollable">
             <div className="modal-content">
@@ -1144,12 +1517,15 @@ export default function ChecklistCreate({ mode = "create" }) {
 
               <div className="modal-body">
                 <div className="row g-3 mb-3">
-                  <div className="col-md-5">
+                  <div className="col-md-4">
                     <label className="form-label fw-semibold">Department</label>
                     <select
                       className="form-select"
                       value={workflowDepartment}
-                      onChange={(event) => setWorkflowDepartment(event.target.value)}
+                      onChange={(event) => {
+                        setWorkflowDepartment(event.target.value);
+                        setWorkflowSubDepartment("");
+                      }}
                     >
                       <option value="">All Departments</option>
                       {departments.map((department) => (
@@ -1160,7 +1536,26 @@ export default function ChecklistCreate({ mode = "create" }) {
                     </select>
                   </div>
 
-                  <div className="col-md-7">
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold">Sub Department</label>
+                    <select
+                      className="form-select"
+                      value={workflowSubDepartment}
+                      onChange={(event) => setWorkflowSubDepartment(event.target.value)}
+                      disabled={!workflowDepartment || !workflowSubDepartmentOptions.length}
+                    >
+                      <option value="">
+                        {workflowDepartment ? "All Sub Departments" : "Select Department First"}
+                      </option>
+                      {workflowSubDepartmentOptions.map((subDepartment) => (
+                        <option key={subDepartment._id} value={subDepartment._id}>
+                          {subDepartment.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-md-4">
                     <label className="form-label fw-semibold">Search</label>
                     <input
                       className="form-control"

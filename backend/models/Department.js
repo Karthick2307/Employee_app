@@ -44,6 +44,15 @@ const DepartmentSchema = new mongoose.Schema(
       ],
       default: []
     },
+    departmentLeadNames: {
+      type: [
+        {
+          type: String,
+          trim: true
+        }
+      ],
+      default: []
+    },
     subDepartments: {
       type: [SubDepartmentSchema],
       default: []

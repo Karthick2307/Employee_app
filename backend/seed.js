@@ -15,6 +15,7 @@ async function seed() {
       email: "admin@test.com",
       password: defaultPassword,
       role: "admin",
+      isDefaultAdmin: true,
     },
     {
       name: "Karthi Admin",

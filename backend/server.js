@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -11,7 +13,13 @@ const siteRoutes = require("./routes/site.routes");
 const companyRoutes = require("./routes/company.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const checklistRoutes = require("./routes/checklist.routes");
+const personalTaskRoutes = require("./routes/personalTask.routes");
+const chatRoutes = require("./routes/chat.routes");
+const departmentChatRoutes = require("./routes/departmentChat.routes");
+const feedbackRoutes = require("./routes/feedback.routes");
+const chatbotRoutes = require("./routes/chatbot.routes");
 const { startChecklistScheduler } = require("./services/checklistWorkflow.service");
+const { startPersonalTaskScheduler } = require("./services/personalTask.service");
 
 const app = express();
 
@@ -28,6 +36,11 @@ app.use("/api/companies", companyRoutes);
 app.use("/api/sites", siteRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/checklists", checklistRoutes);
+app.use("/api/personal-tasks", personalTaskRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/department-chat", departmentChatRoutes);
+app.use("/api/feedback", feedbackRoutes);
+app.use("/api/chatbot", chatbotRoutes);
 
 const startServer = async () => {
   try {
@@ -35,6 +48,7 @@ const startServer = async () => {
     console.log("MongoDB Connected");
 
     startChecklistScheduler();
+    startPersonalTaskScheduler();
 
     app.listen(5000, () => {
       console.log("Server running on port 5000");

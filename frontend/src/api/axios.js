@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearPostLoginWelcomeSession } from "../utils/postLoginWelcome";
 
 const api = axios.create({
   baseURL: "http://localhost:5000/api",
@@ -9,7 +10,58 @@ const api = axios.create({
 
 let isRedirectingToLogin = false;
 
+const parseJwtPayload = (token) => {
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) return null;
+
+  const [, payload = ""] = normalizedToken.split(".");
+  if (!payload) return null;
+
+  try {
+    const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+      "="
+    );
+
+    return JSON.parse(window.atob(paddedPayload));
+  } catch {
+    return null;
+  }
+};
+
+const isStoredTokenExpired = (token) => {
+  const payload = parseJwtPayload(token);
+  const expiresAt = Number(payload?.exp || 0);
+
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+    return false;
+  }
+
+  return Date.now() >= expiresAt * 1000;
+};
+
+const isSessionFailure = (error) => {
+  const status = Number(error.response?.status || 0);
+  if (status !== 401) return false;
+
+  const responseMessage = String(error.response?.data?.message || "").trim().toLowerCase();
+  const token = localStorage.getItem("token");
+
+  if (
+    responseMessage.includes("expired token") ||
+    responseMessage.includes("invalid token") ||
+    responseMessage.includes("expired") ||
+    responseMessage.includes("no token")
+  ) {
+    return true;
+  }
+
+  return Boolean(token) && isStoredTokenExpired(token);
+};
+
 const redirectToLogin = () => {
+  clearPostLoginWelcomeSession();
   localStorage.removeItem("token");
   localStorage.removeItem("user");
 
@@ -43,7 +95,7 @@ api.interceptors.response.use(
     const requestUrl = String(error.config?.url || "");
     const isLoginRequest = requestUrl.includes("/auth/login");
 
-    if (status === 401 && !isLoginRequest) {
+    if (status === 401 && !isLoginRequest && isSessionFailure(error)) {
       redirectToLogin();
     }
 

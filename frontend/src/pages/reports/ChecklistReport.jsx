@@ -1,51 +1,125 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/axios";
+import { formatDepartmentList } from "../../utils/departmentDisplay";
 import {
   formatApprovalWorkflowLabel,
+  formatApprovalTypeLabel,
+  formatChecklistTaskStatus,
   formatCurrentApproverLabel,
   formatDateTime,
   formatEmployeeLabel,
+  formatMarkAdjustment,
   formatPriorityLabel,
   formatScheduleLabel,
+  formatTaskFinalMarkLabel,
+  formatTaskMarkDayLabel,
   formatTimelinessLabel,
-  formatTaskStatus,
+  getTaskTargetDateTime,
+  getApprovalTypeBadgeClass,
   getApprovalWorkflowEmployees,
   getPriorityBadgeClass,
   getPriorityRowClass,
+  getTaskMarkSummary,
   getTimelinessBadgeClass,
-  getTaskStatusBadgeClass,
+  getChecklistTaskStatusBadgeClass,
 } from "../../utils/checklistDisplay";
+
+const flattenSubDepartments = (rows = [], trail = [], department = null) =>
+  rows.flatMap((item) => {
+    const nextTrail = [...trail, item.name];
+
+    return [
+      {
+        _id: item._id,
+        name: item.name,
+        departmentId: department?._id || "",
+        departmentName: department?.name || "",
+        label: department?.name
+          ? `${department.name} > ${nextTrail.join(" > ")}`
+          : nextTrail.join(" > "),
+      },
+      ...flattenSubDepartments(item.children || [], nextTrail, department),
+    ];
+  });
+
+const buildSubDepartmentOptions = (departmentRows = [], selectedDepartmentId = "") =>
+  (departmentRows || [])
+    .filter((department) => String(department._id) === String(selectedDepartmentId || ""))
+    .flatMap((department) =>
+      flattenSubDepartments(department.subDepartments || [], [], department)
+    );
 
 const defaultFilters = {
   fromDate: "",
   toDate: "",
   status: "",
   scheduleType: "",
+  companyName: "",
+  department: "",
+  subDepartment: "",
   assignedEmployee: "",
   timelinessStatus: "",
+};
+
+const getDepartmentLabel = (value) =>
+  formatDepartmentList(value?.assignedEmployee?.department || value?.departmentDetails || value?.department) ||
+  value?.departmentDisplay ||
+  "-";
+
+const formatEmployeeOptionLabel = (employee) => {
+  const employeeLabel = formatEmployeeLabel(employee);
+  const departmentLabel = getDepartmentLabel(employee);
+
+  return departmentLabel && departmentLabel !== "-"
+    ? `${employeeLabel} (${departmentLabel})`
+    : employeeLabel;
+};
+
+const getDownloadFileName = (headers = {}, fallbackFileName) => {
+  const contentDisposition = headers?.["content-disposition"] || "";
+  const utfFileNameMatch = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+
+  if (utfFileNameMatch?.[1]) {
+    return decodeURIComponent(utfFileNameMatch[1]);
+  }
+
+  const fileNameMatch = /filename="?([^"]+)"?/i.exec(contentDisposition);
+  return fileNameMatch?.[1] || fallbackFileName;
 };
 
 export default function ChecklistReport() {
   const [rows, setRows] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [sites, setSites] = useState([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState(defaultFilters);
   const [loading, setLoading] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState("");
 
   useEffect(() => {
-    const loadEmployees = async () => {
+    const loadMasters = async () => {
       try {
-        const response = await api.get("/employees", { params: { status: "active" } });
-        setEmployees(Array.isArray(response.data) ? response.data : []);
+        const [employeeResponse, departmentResponse, siteResponse] = await Promise.all([
+          api.get("/employees", { params: { status: "active" } }),
+          api.get("/departments"),
+          api.get("/sites"),
+        ]);
+
+        setEmployees(Array.isArray(employeeResponse.data) ? employeeResponse.data : []);
+        setDepartments(Array.isArray(departmentResponse.data) ? departmentResponse.data : []);
+        setSites(Array.isArray(siteResponse.data) ? siteResponse.data : []);
       } catch (err) {
-        console.error("Checklist report employee load failed:", err);
+        console.error("Checklist report master load failed:", err);
         setEmployees([]);
+        setDepartments([]);
+        setSites([]);
       }
     };
 
-    void loadEmployees();
+    void loadMasters();
   }, []);
 
   useEffect(() => {
@@ -60,6 +134,9 @@ export default function ChecklistReport() {
             toDate: appliedFilters.toDate || undefined,
             status: appliedFilters.status || undefined,
             scheduleType: appliedFilters.scheduleType || undefined,
+            companyName: appliedFilters.companyName || undefined,
+            department: appliedFilters.department || undefined,
+            subDepartment: appliedFilters.subDepartment || undefined,
             assignedEmployee: appliedFilters.assignedEmployee || undefined,
             timelinessStatus: appliedFilters.timelinessStatus || undefined,
           },
@@ -91,6 +168,83 @@ export default function ChecklistReport() {
     setAppliedFilters(defaultFilters);
   };
 
+  const subDepartmentOptions = buildSubDepartmentOptions(departments, filters.department);
+  const companyOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (sites || [])
+            .map((site) => String(site?.companyName || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" })),
+    [sites]
+  );
+  const filteredEmployees = employees.filter((employee) => {
+    const departmentIds = Array.isArray(employee.departmentIds)
+      ? employee.departmentIds.map((item) => String(item))
+      : [];
+    const subDepartmentIds = Array.isArray(employee.subDepartment)
+      ? employee.subDepartment.map((item) => String(item))
+      : [];
+
+    if (filters.department && !departmentIds.includes(String(filters.department))) {
+      return false;
+    }
+
+    if (filters.subDepartment && !subDepartmentIds.includes(String(filters.subDepartment))) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const handleExport = async (format) => {
+    setExportingFormat(format);
+
+    try {
+      const response = await api.get(`/checklists/tasks/report/export/${format}`, {
+        params: {
+          search: search || undefined,
+          fromDate: appliedFilters.fromDate || undefined,
+          toDate: appliedFilters.toDate || undefined,
+          status: appliedFilters.status || undefined,
+          scheduleType: appliedFilters.scheduleType || undefined,
+          companyName: appliedFilters.companyName || undefined,
+          department: appliedFilters.department || undefined,
+          subDepartment: appliedFilters.subDepartment || undefined,
+          assignedEmployee: appliedFilters.assignedEmployee || undefined,
+          timelinessStatus: appliedFilters.timelinessStatus || undefined,
+        },
+        responseType: "blob",
+      });
+
+      const fallbackFileName =
+        format === "excel" ? "checklist-task-report.xlsx" : "checklist-task-report.pdf";
+      const blob = new Blob([response.data], {
+        type: response.headers?.["content-type"] || undefined,
+      });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+
+      anchor.href = downloadUrl;
+      anchor.download = getDownloadFileName(response.headers, fallbackFileName);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(`Checklist report ${format} export failed:`, err);
+      alert(
+        format === "excel"
+          ? "Failed to download checklist task report in Excel format"
+          : "Failed to download checklist task report in PDF format"
+      );
+    } finally {
+      setExportingFormat("");
+    }
+  };
+
   return (
     <div className="container-fluid mt-4 mb-5">
       <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
@@ -101,13 +255,31 @@ export default function ChecklistReport() {
           </div>
         </div>
 
-        <input
-          className="form-control"
-          style={{ maxWidth: "320px" }}
-          placeholder="Search task number or checklist name"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+        <div className="d-flex flex-wrap align-items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-success"
+            onClick={() => handleExport("excel")}
+            disabled={exportingFormat === "excel"}
+          >
+            {exportingFormat === "excel" ? "Downloading Excel..." : "Download Excel"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline-danger"
+            onClick={() => handleExport("pdf")}
+            disabled={exportingFormat === "pdf"}
+          >
+            {exportingFormat === "pdf" ? "Downloading PDF..." : "Download PDF"}
+          </button>
+          <input
+            className="form-control"
+            style={{ maxWidth: "320px" }}
+            placeholder="Search task number or checklist name"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
       </div>
 
       <div className="card shadow-sm border-0 mb-3">
@@ -145,9 +317,12 @@ export default function ChecklistReport() {
                 }
               >
                 <option value="">All</option>
-                <option value="open">Open</option>
-                <option value="submitted">Submitted</option>
-                <option value="approved">Approved</option>
+                <option value="waiting_dependency">Waiting for Dependency</option>
+                <option value="open">Assigned</option>
+                <option value="submitted">Under Approval</option>
+                <option value="nil_for_approval">Nil For Approval</option>
+                <option value="approved">Approved / Completed</option>
+                <option value="nil_approved">Nil Approved</option>
                 <option value="rejected">Rejected</option>
               </select>
             </div>
@@ -168,6 +343,67 @@ export default function ChecklistReport() {
                 <option value="custom">Custom</option>
               </select>
             </div>
+            <div className="col-md-2">
+              <label className="form-label mb-1">Company Name</label>
+              <select
+                className="form-select"
+                value={filters.companyName}
+                onChange={(event) =>
+                  setFilters((prev) => ({ ...prev, companyName: event.target.value }))
+                }
+              >
+                <option value="">All Companies</option>
+                {companyOptions.map((companyName) => (
+                  <option key={companyName} value={companyName}>
+                    {companyName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label mb-1">Department</label>
+              <select
+                className="form-select"
+                value={filters.department}
+                onChange={(event) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    department: event.target.value,
+                    subDepartment: "",
+                    assignedEmployee: "",
+                  }))
+                }
+              >
+                <option value="">All Departments</option>
+                {departments.map((department) => (
+                  <option key={department._id} value={department._id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label mb-1">Sub Department</label>
+              <select
+                className="form-select"
+                value={filters.subDepartment}
+                onChange={(event) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    subDepartment: event.target.value,
+                    assignedEmployee: "",
+                  }))
+                }
+                disabled={!filters.department || !subDepartmentOptions.length}
+              >
+                <option value="">All Sub Departments</option>
+                {subDepartmentOptions.map((subDepartment) => (
+                  <option key={subDepartment._id} value={subDepartment._id}>
+                    {subDepartment.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="col-md-3">
               <label className="form-label mb-1">Employee</label>
               <select
@@ -178,9 +414,9 @@ export default function ChecklistReport() {
                 }
               >
                 <option value="">All Employees</option>
-                {employees.map((employee) => (
+                {filteredEmployees.map((employee) => (
                   <option key={employee._id} value={employee._id}>
-                    {formatEmployeeLabel(employee)}
+                    {formatEmployeeOptionLabel(employee)}
                   </option>
                 ))}
               </select>
@@ -195,9 +431,9 @@ export default function ChecklistReport() {
                 }
               >
                 <option value="">All</option>
-                <option value="advanced">Advanced</option>
+                <option value="advance">Advance</option>
                 <option value="on_time">On Time</option>
-                <option value="delay">Delay</option>
+                <option value="delayed">Delay</option>
                 <option value="pending">Pending</option>
               </select>
             </div>
@@ -222,21 +458,28 @@ export default function ChecklistReport() {
               <th>Task Number</th>
               <th>Checklist</th>
               <th>Employee</th>
+              <th>Department</th>
               <th>Priority</th>
               <th>Schedule</th>
               <th>Start</th>
               <th>End</th>
+              <th>Target Date / Time</th>
               <th>Submitted At</th>
+              <th>Submission Status</th>
+              <th>Approval Type</th>
               <th>Time Status</th>
+              <th>Delay/Advance</th>
+              <th>Adjustment</th>
+              <th>Final Mark</th>
               <th>Current Approver</th>
-              <th>Status</th>
+              <th>Approval Status</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan="13" className="text-center">
+                <td colSpan="20" className="text-center">
                   Loading checklist task report...
                 </td>
               </tr>
@@ -244,7 +487,7 @@ export default function ChecklistReport() {
 
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan="13" className="text-center">
+                <td colSpan="20" className="text-center">
                   No checklist task records found
                 </td>
               </tr>
@@ -255,6 +498,7 @@ export default function ChecklistReport() {
                 const currentApproverLabel = formatCurrentApproverLabel(row);
                 const approvalWorkflowLabel = formatApprovalWorkflowLabel(row);
                 const workflowCount = getApprovalWorkflowEmployees(row).length;
+                const markSummary = getTaskMarkSummary(row);
                 const approverPrimaryLabel =
                   currentApproverLabel && currentApproverLabel !== "-"
                     ? currentApproverLabel
@@ -273,6 +517,7 @@ export default function ChecklistReport() {
                     <div className="small text-muted">{row.checklistNumber}</div>
                   </td>
                   <td>{formatEmployeeLabel(row.assignedEmployee)}</td>
+                  <td>{getDepartmentLabel(row)}</td>
                   <td>
                     <span className={`badge ${getPriorityBadgeClass(row)}`}>
                       {formatPriorityLabel(row)}
@@ -281,12 +526,36 @@ export default function ChecklistReport() {
                   <td>{formatScheduleLabel(row)}</td>
                   <td>{formatDateTime(row.occurrenceDate)}</td>
                   <td>{formatDateTime(row.endDateTime)}</td>
+                  <td>{formatDateTime(getTaskTargetDateTime(row))}</td>
                   <td>{formatDateTime(row.submittedAt)}</td>
+                  <td>{row.submittedAt ? "Submitted" : "Pending Submission"}</td>
                   <td>
-                    <span className={`badge ${getTimelinessBadgeClass(row.timelinessStatus)}`}>
-                      {formatTimelinessLabel(row.timelinessStatus)}
+                    <span className={`badge ${getApprovalTypeBadgeClass(row)}`}>
+                      {formatApprovalTypeLabel(row)}
                     </span>
                   </td>
+                  <td>
+                    <span
+                      className={`badge ${getTimelinessBadgeClass(
+                        row.submissionTimingStatus || row.timelinessStatus
+                      )}`}
+                    >
+                      {formatTimelinessLabel(
+                        row.submissionTimingStatus || row.timelinessStatus
+                      )}
+                    </span>
+                  </td>
+                  <td>{formatTaskMarkDayLabel(row)}</td>
+                  <td>
+                    {markSummary.isNilApproval
+                      ? "No Mark"
+                      : markSummary.enableMark
+                      ? markSummary.adjustment !== null
+                        ? formatMarkAdjustment(markSummary.adjustment)
+                        : "Pending"
+                      : "Not enabled"}
+                  </td>
+                  <td>{formatTaskFinalMarkLabel(row)}</td>
                   <td>
                     <div>{approverPrimaryLabel || "-"}</div>
                     {showWorkflowLabel && (
@@ -294,8 +563,8 @@ export default function ChecklistReport() {
                     )}
                   </td>
                   <td>
-                    <span className={`badge ${getTaskStatusBadgeClass(row.status)}`}>
-                      {formatTaskStatus(row.status)}
+                    <span className={`badge ${getChecklistTaskStatusBadgeClass(row.status)}`}>
+                      {formatChecklistTaskStatus(row.status)}
                     </span>
                   </td>
                   <td>

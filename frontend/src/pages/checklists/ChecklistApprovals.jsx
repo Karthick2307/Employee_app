@@ -2,13 +2,18 @@ import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import api from "../../api/axios";
 import {
+  formatApprovalTypeLabel,
   formatDateTime,
   formatEmployeeLabel,
+  formatChecklistTaskStatus,
   formatPriorityLabel,
-  formatTaskStatus,
+  formatTaskFinalMarkLabel,
+  formatTaskMarkDayLabel,
+  getApprovalTypeBadgeClass,
   getPriorityBadgeClass,
   getPriorityRowClass,
-  getTaskStatusBadgeClass,
+  getChecklistTaskStatusBadgeClass,
+  isNilChecklistTask,
 } from "../../utils/checklistDisplay";
 
 const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
@@ -45,32 +50,65 @@ export default function ChecklistApprovals() {
     return <Navigate to="/checklists" replace />;
   }
 
+  const submittedCount = rows.filter((row) =>
+    ["submitted", "nil_for_approval"].includes(String(row.status || ""))
+  ).length;
+  const nilApprovalCount = rows.filter((row) => isNilChecklistTask(row)).length;
+  const rejectedCount = rows.filter((row) => row.status === "rejected").length;
+
   return (
     <div className="container-fluid mt-4 mb-5">
-      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-        <div>
-          <h3 className="mb-1">Approval Inbox</h3>
-          <div className="text-muted">
-            Only checklist submissions mapped to you appear here.
+      <div className="page-intro-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <div className="page-kicker">Checklists</div>
+            <h3 className="mb-1">Approval Inbox</h3>
+            <div className="page-subtitle">
+              Only checklist submissions mapped to you appear here.
+            </div>
           </div>
+
+          <Link to="/checklists" className="btn btn-outline-secondary">
+            Back to My Tasks
+          </Link>
         </div>
 
-        <Link to="/checklists" className="btn btn-outline-secondary">
-          Back to My Tasks
-        </Link>
-      </div>
-
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body">
-          <input
-            className="form-control"
-            placeholder="Search task number or checklist name"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+        <div className="list-summary mt-3">
+          <span className="summary-chip">{rows.length} requests</span>
+          <span className="summary-chip summary-chip--neutral">{submittedCount} under approval</span>
+          <span className="summary-chip summary-chip--neutral">{nilApprovalCount} nil flow</span>
+          <span className="summary-chip summary-chip--neutral">{rejectedCount} rejected</span>
         </div>
       </div>
 
+      <div className="filter-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <h6 className="mb-1">Search</h6>
+            <div className="form-help">
+              Search by task number or checklist name to find approvals faster.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={() => setSearch("")}
+            disabled={!search}
+          >
+            Clear Search
+          </button>
+        </div>
+
+        <input
+          className="form-control mt-3"
+          placeholder="Search task number or checklist name"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </div>
+
+      <div className="table-shell">
       <div className="table-responsive">
         <table className="table table-bordered table-striped align-middle">
           <thead className="table-dark">
@@ -82,6 +120,9 @@ export default function ChecklistApprovals() {
               <th>Priority</th>
               <th>Occurrence</th>
               <th>Submitted At</th>
+              <th>Approval Type</th>
+              <th>Delay/Advance</th>
+              <th>Final Mark</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
@@ -89,7 +130,7 @@ export default function ChecklistApprovals() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan="9" className="text-center">
+                <td colSpan="12" className="text-center">
                   Loading approval tasks...
                 </td>
               </tr>
@@ -97,14 +138,15 @@ export default function ChecklistApprovals() {
 
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan="9" className="text-center">
+                <td colSpan="12" className="text-center">
                   No approval requests are mapped to you right now
                 </td>
               </tr>
             )}
 
             {!loading &&
-              rows.map((row, index) => (
+              rows.map((row, index) => {
+                return (
                 <tr key={row._id} className={getPriorityRowClass(row)}>
                   <td>{index + 1}</td>
                   <td>{row.taskNumber}</td>
@@ -118,8 +160,15 @@ export default function ChecklistApprovals() {
                   <td>{formatDateTime(row.occurrenceDate)}</td>
                   <td>{formatDateTime(row.submittedAt)}</td>
                   <td>
-                    <span className={`badge ${getTaskStatusBadgeClass(row.status)}`}>
-                      {formatTaskStatus(row.status)}
+                    <span className={`badge ${getApprovalTypeBadgeClass(row)}`}>
+                      {formatApprovalTypeLabel(row)}
+                    </span>
+                  </td>
+                  <td>{formatTaskMarkDayLabel(row)}</td>
+                  <td>{formatTaskFinalMarkLabel(row)}</td>
+                  <td>
+                    <span className={`badge ${getChecklistTaskStatusBadgeClass(row.status)}`}>
+                      {formatChecklistTaskStatus(row.status)}
                     </span>
                   </td>
                   <td>
@@ -128,9 +177,11 @@ export default function ChecklistApprovals() {
                     </Link>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

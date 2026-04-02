@@ -3,6 +3,7 @@ const Department = require("../models/Department");
 const Site = require("../models/Site");
 const ExcelJS = require("exceljs");
 const bcrypt = require("bcryptjs");
+const { Types } = require("mongoose");
 
 const normalizeSites = (value) =>
   Array.isArray(value) ? value : value ? [value] : [];
@@ -128,6 +129,22 @@ const formatSiteDisplayName = (site) => {
   const name = String(site.name || "").trim();
   if (companyName && name) return `${companyName} - ${name}`;
   return name || companyName;
+};
+
+const getRequesterRole = (user) =>
+  String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+const getChecklistUserSiteId = (user) => {
+  const role = getRequesterRole(user);
+  const siteId = String(user?.siteId || "").trim();
+
+  if (role === "admin" || role === "employee") return "";
+  if (!(role === "user" || Boolean(user?.checklistMasterAccess))) return "";
+  if (!Types.ObjectId.isValid(siteId)) return "";
+
+  return siteId;
 };
 
 const parseSubSitesPayload = (rawValue) => {
@@ -342,6 +359,7 @@ exports.getEmployees = async (req, res) => {
     const { search = "", status = "", department = "" } = req.query;
     const filter = {};
     const isEmployeeUser = String(req.user?.role || "").trim().toLowerCase() === "employee";
+    const checklistUserSiteId = getChecklistUserSiteId(req.user);
 
     if (search) {
       filter.$or = [
@@ -356,6 +374,7 @@ exports.getEmployees = async (req, res) => {
     if (status === "inactive") filter.isActive = false;
     if (department) filter.department = department;
     if (isEmployeeUser) filter._id = req.user.id;
+    if (checklistUserSiteId) filter.sites = checklistUserSiteId;
 
     const employees = await Employee.find(filter)
       .populate("department", "name subDepartments")
@@ -374,11 +393,17 @@ exports.getEmployees = async (req, res) => {
 exports.getEmployeeById = async (req, res) => {
   try {
     const isEmployeeUser = String(req.user?.role || "").trim().toLowerCase() === "employee";
+    const checklistUserSiteId = getChecklistUserSiteId(req.user);
     if (isEmployeeUser && String(req.user?.id || "") !== String(req.params.id || "")) {
       return res.status(403).json({ message: "You can only view your own employee record" });
     }
 
-    const emp = await Employee.findById(req.params.id)
+    const employeeFilter = { _id: req.params.id };
+    if (checklistUserSiteId) {
+      employeeFilter.sites = checklistUserSiteId;
+    }
+
+    const emp = await Employee.findOne(employeeFilter)
       .populate("department", "name subDepartments")
       .populate("designation", "name")
       .populate("superiorEmployee", "employeeCode employeeName")
@@ -506,6 +531,44 @@ exports.deleteEmployee = async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: "Delete failed" });
+  }
+};
+
+exports.bulkDeleteEmployees = async (req, res) => {
+  try {
+    const employeeIds = Array.isArray(req.body?.employeeIds)
+      ? req.body.employeeIds.map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+    const uniqueEmployeeIds = [...new Set(employeeIds)];
+
+    if (!uniqueEmployeeIds.length) {
+      return res.status(400).json({ message: "Select at least one employee to delete" });
+    }
+
+    if (uniqueEmployeeIds.some((id) => !Types.ObjectId.isValid(id))) {
+      return res.status(400).json({ message: "One or more selected employees are invalid" });
+    }
+
+    const existingEmployees = await Employee.find(
+      { _id: { $in: uniqueEmployeeIds } },
+      "_id"
+    ).lean();
+
+    if (!existingEmployees.length) {
+      return res.status(404).json({ message: "Selected employees were not found" });
+    }
+
+    const existingEmployeeIds = existingEmployees.map((employee) => employee._id);
+
+    await Employee.deleteMany({ _id: { $in: existingEmployeeIds } });
+
+    res.json({
+      success: true,
+      deletedCount: existingEmployeeIds.length,
+    });
+  } catch (err) {
+    console.error("Bulk delete employees error:", err);
+    res.status(500).json({ message: "Failed to delete selected employees" });
   }
 };
 

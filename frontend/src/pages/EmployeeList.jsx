@@ -1,8 +1,105 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../api/axios";
 import { formatDepartmentList } from "../utils/departmentDisplay";
 import { formatSiteList } from "../utils/siteDisplay";
+
+const getEmployeeInitials = (value = "") =>
+  String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "EM";
+
+const getStatusFilterLabel = (value) => {
+  if (value === "active") return "Active only";
+  if (value === "inactive") return "Inactive only";
+  return "";
+};
+
+function ViewIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+    >
+      <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.087.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.12 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z" />
+      <path d="M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0a3.5 3.5 0 0 1-7 0" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+    >
+      <path d="M12.854.146a.5.5 0 0 1 .707 0l2.586 2.586a.5.5 0 0 1 0 .707l-10 10L3 14l.561-3.146zM11.207 2L4 9.207V12h2.793L14 4.793z" />
+      <path
+        fillRule="evenodd"
+        d="M1 13.5V16h2.5l7.373-7.373l-2.5-2.5zM15 3.793L12.207 1L13.5-.293a1 1 0 0 1 1.414 0l1.379 1.379a1 1 0 0 1 0 1.414z"
+      />
+    </svg>
+  );
+}
+
+function ToggleIcon({ active }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+    >
+      {active ? (
+        <>
+          <path d="M11 9a3 3 0 1 0 0-6a3 3 0 0 0 0 6" />
+          <path
+            fillRule="evenodd"
+            d="M0 4a4 4 0 0 1 4-4h7a4 4 0 1 1 0 8H4a4 4 0 0 1-4-4m4-3a3 3 0 0 0 0 6h7a3 3 0 1 0 0-6z"
+          />
+        </>
+      ) : (
+        <>
+          <path d="M5 11a3 3 0 1 0 0-6a3 3 0 0 0 0 6" />
+          <path
+            fillRule="evenodd"
+            d="M0 8a4 4 0 0 1 4-4h7a4 4 0 1 1 0 8H4a4 4 0 0 1-4-4m4-3a3 3 0 0 0 0 6h7a3 3 0 1 0 0-6z"
+          />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+    >
+      <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0A.5.5 0 0 1 8.5 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z" />
+      <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 1 1 0-2H5V1a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1h2.5a1 1 0 0 1 1 1M6 1v1h4V1z" />
+    </svg>
+  );
+}
 
 export default function EmployeeList() {
   const [employees, setEmployees] = useState([]);
@@ -10,13 +107,13 @@ export default function EmployeeList() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
-  /* ===== DASHBOARD FILTER ===== */
   const [params] = useSearchParams();
   const department = params.get("department");
   const paramsKey = params.toString();
 
-  /* ===== USER ROLE ===== */
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const isAdmin = user?.role === "admin";
   const uploadBaseUrl = useMemo(
@@ -24,16 +121,16 @@ export default function EmployeeList() {
     []
   );
 
-  /* ===== LOAD EMPLOYEES ===== */
   const loadEmployees = useCallback(async () => {
     setLoading(true);
+
     try {
       const res = await api.get("/employees", {
         params: {
           search: search || undefined,
           status: status || undefined,
-          department: department || undefined
-        }
+          department: department || undefined,
+        },
       });
 
       setEmployees(Array.isArray(res.data) ? res.data : []);
@@ -44,28 +141,111 @@ export default function EmployeeList() {
     } finally {
       setLoading(false);
     }
-  }, [search, status, department]);
+  }, [department, search, status]);
 
   useEffect(() => {
     loadEmployees();
   }, [loadEmployees, paramsKey]);
 
-  /* ===== DELETE ===== */
+  useEffect(() => {
+    if (!isAdmin) {
+      setSelectedEmployeeIds([]);
+      return;
+    }
+
+    setSelectedEmployeeIds((currentValue) =>
+      currentValue.filter((selectedId) =>
+        employees.some((employee) => String(employee._id) === String(selectedId))
+      )
+    );
+  }, [employees, isAdmin]);
+
+  const removeEmployeesFromState = (employeeIds) => {
+    const normalizedIds = employeeIds.map((id) => String(id));
+
+    setEmployees((currentValue) =>
+      currentValue.filter((employee) => !normalizedIds.includes(String(employee._id)))
+    );
+    setSelectedEmployeeIds((currentValue) =>
+      currentValue.filter((selectedId) => !normalizedIds.includes(String(selectedId)))
+    );
+  };
+
+  const toggleEmployeeSelection = (id) => {
+    const normalizedId = String(id);
+
+    setSelectedEmployeeIds((currentValue) =>
+      currentValue.includes(normalizedId)
+        ? currentValue.filter((selectedId) => selectedId !== normalizedId)
+        : [...currentValue, normalizedId]
+    );
+  };
+
+  const toggleAllEmployeeSelections = () => {
+    const visibleEmployeeIds = employees.map((employee) => String(employee._id));
+
+    if (
+      visibleEmployeeIds.length &&
+      visibleEmployeeIds.every((employeeId) => selectedEmployeeIds.includes(employeeId))
+    ) {
+      setSelectedEmployeeIds([]);
+      return;
+    }
+
+    setSelectedEmployeeIds(visibleEmployeeIds);
+  };
+
   const removeEmployee = async (id) => {
     if (!window.confirm("Delete employee?")) return;
+
     try {
       await api.delete(`/employees/${id}`);
-      loadEmployees();
-    } catch {
-      alert("Delete failed");
+      removeEmployeesFromState([id]);
+    } catch (err) {
+      console.error("Delete employee failed:", err);
+      alert(err.response?.data?.message || "Delete failed");
     }
   };
 
-  /* ===== STATUS TOGGLE ===== */
+  const removeSelectedEmployees = async () => {
+    if (!selectedEmployeeIds.length) return;
+
+    const employeeIdsToDelete = [...selectedEmployeeIds];
+
+    if (
+      !window.confirm(
+        `Delete ${employeeIdsToDelete.length} selected employee${
+          employeeIdsToDelete.length === 1 ? "" : "s"
+        }?`
+      )
+    ) {
+      return;
+    }
+
+    setBulkDeleteLoading(true);
+
+    try {
+      const res = await api.post("/employees/bulk-delete", {
+        employeeIds: employeeIdsToDelete,
+      });
+      const deletedCount = Number(res.data?.deletedCount || employeeIdsToDelete.length);
+
+      removeEmployeesFromState(employeeIdsToDelete);
+      alert(
+        `${deletedCount} employee${deletedCount === 1 ? "" : "s"} deleted successfully.`
+      );
+    } catch (err) {
+      console.error("Bulk delete employees failed:", err);
+      alert(err.response?.data?.message || "Bulk delete failed");
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
   const toggleStatus = async (id, currentStatus) => {
     try {
       await api.patch(`/employees/${id}/status`, {
-        isActive: !currentStatus
+        isActive: !currentStatus,
       });
       loadEmployees();
     } catch {
@@ -73,17 +253,15 @@ export default function EmployeeList() {
     }
   };
 
-  /* ===== EXPORT EXCEL (FIXED) ===== */
   const exportExcel = async () => {
     try {
       const res = await api.get("/employees/export/excel", {
         params: { status },
-        responseType: "blob"
+        responseType: "blob",
       });
 
       const blob = new Blob([res.data], {
-        type:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
 
       const url = window.URL.createObjectURL(blob);
@@ -97,158 +275,416 @@ export default function EmployeeList() {
     }
   };
 
+  const clearFilters = () => {
+    setSearch("");
+    setStatus("");
+  };
+
+  const allEmployeesSelected =
+    employees.length > 0 &&
+    employees.every((employee) => selectedEmployeeIds.includes(String(employee._id)));
+  const activeCount = employees.filter((employee) => employee.isActive).length;
+  const inactiveCount = employees.length - activeCount;
+  const hasFilters = Boolean(search.trim() || status || department);
+  const stats = [
+    {
+      label: "Employees Visible",
+      value: employees.length,
+      meta: "Current search result set",
+      accentClass: "employee-directory-stat-card--primary",
+    },
+    {
+      label: "Currently Active",
+      value: activeCount,
+      meta: "Ready for assignments",
+      accentClass: "employee-directory-stat-card--success",
+    },
+    {
+      label: "Inactive Profiles",
+      value: inactiveCount,
+      meta: "Need review or reactivation",
+      accentClass: "employee-directory-stat-card--neutral",
+    },
+  ];
+  const activeFilterPills = [
+    department ? "Department focus applied" : "",
+    search.trim() ? `Search: ${search.trim()}` : "",
+    getStatusFilterLabel(status),
+  ].filter(Boolean);
+
+  if (isAdmin) {
+    stats.push({
+      label: "Selected Rows",
+      value: selectedEmployeeIds.length,
+      meta: "Bulk actions ready",
+      accentClass: "employee-directory-stat-card--accent",
+    });
+  }
+
   return (
-    <div className="container mt-4">
-      {/* ===== HEADER ===== */}
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4>Employee List</h4>
+    <div className="container-fluid mt-4 mb-5 px-4">
+      <div className="page-intro-card employee-directory-hero mb-4">
+        <div className="list-toolbar align-items-start">
+          <div>
+            <div className="page-kicker">Employees</div>
+            <h4 className="mb-2">Employee Directory</h4>
+            <p className="page-subtitle mb-0 employee-directory-hero__subtitle">
+              Review workforce coverage, open profiles quickly, and manage employee records from a
+              single control panel.
+            </p>
 
-        {isAdmin && (
-          <Link to="/add" className="btn btn-primary">
-            + Add Employee
-          </Link>
-        )}
-      </div>
-
-      {/* ===== FILTERS ===== */}
-      <div className="d-flex gap-2 mb-3">
-        <input
-          className="form-control"
-          placeholder="Search by code / name / email"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        <select
-          className="form-select"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          <option value="">All</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
-
-        {isAdmin && (
-          <button className="btn btn-success" onClick={exportExcel}>
-            Export Excel
-          </button>
-        )}
-      </div>
-
-      {/* ===== TABLE ===== */}
-      <table className="table table-bordered table-striped">
-        <thead className="table-dark">
-          <tr>
-            <th>Photo</th>
-            <th>Code</th>
-            <th>Name</th>
-            <th>Departments</th>
-            <th>Sub Departments</th>
-            <th>Superior Employee</th>
-            <th>Sites</th>
-            <th>Sub Sites</th>
-            <th>Designation</th>
-            <th>Status</th>
-            <th width="260">Actions</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {loading && (
-            <tr>
-              <td colSpan="11" className="text-center">
-                Loading...
-              </td>
-            </tr>
-          )}
-
-          {!loading && employees.length === 0 && (
-            <tr>
-              <td colSpan="11" className="text-center">
-                No employees found
-              </td>
-            </tr>
-          )}
-
-          {!loading &&
-            employees.map((e) => (
-              <tr key={e._id}>
-                <td>
-                  {e.photo && !photoErrors[e._id] ? (
-                    <img
-                      src={`${uploadBaseUrl}/uploads/${e.photo}`}
-                      alt="emp"
-                      width="40"
-                      height="40"
-                      style={{ borderRadius: "50%", objectFit: "cover" }}
-                      onError={() =>
-                        setPhotoErrors((prev) => ({ ...prev, [e._id]: true }))
-                      }
-                    />
-                  ) : (
-                    "-"
-                  )}
-                </td>
-
-                <td>{e.employeeCode}</td>
-                <td>{e.employeeName}</td>
-                <td>{e.departmentDisplay || formatDepartmentList(e.departmentDetails || e.department) || "-"}</td>
-                <td>{e.subDepartmentDisplay || e.subDepartmentPath || e.subDepartmentName || "-"}</td>
-                <td>{e.superiorEmployeeName || "-"}</td>
-                <td>{formatSiteList(e.sites) || "-"}</td>
-                <td>{e.subSiteDisplay || "-"}</td>
-                <td>{e.designation?.name || "-"}</td>
-
-                <td>
-                  <span
-                    className={`badge ${
-                      e.isActive ? "bg-success" : "bg-secondary"
-                    }`}
-                  >
-                    {e.isActive ? "Active" : "Inactive"}
+            {activeFilterPills.length ? (
+              <div className="employee-directory-filter-pills mt-3">
+                {activeFilterPills.map((pill) => (
+                  <span key={pill} className="employee-directory-filter-pill">
+                    {pill}
                   </span>
-                </td>
+                ))}
+              </div>
+            ) : (
+              <div className="form-help mt-3">
+                Search, status, and dashboard filters will appear here for quick reference.
+              </div>
+            )}
+          </div>
 
-                <td>
-                  <Link
-                    className="btn btn-sm btn-info me-1"
-                    to={`/view/${e._id}`}
-                  >
-                    View
-                  </Link>
+          {isAdmin ? (
+            <div className="d-flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-outline-danger"
+                onClick={removeSelectedEmployees}
+                disabled={!selectedEmployeeIds.length || bulkDeleteLoading}
+              >
+                {bulkDeleteLoading
+                  ? "Deleting..."
+                  : `Delete Selected${
+                      selectedEmployeeIds.length ? ` (${selectedEmployeeIds.length})` : ""
+                    }`}
+              </button>
+              <Link to="/add" className="btn btn-primary">
+                Add Employee
+              </Link>
+            </div>
+          ) : null}
+        </div>
 
-                  {isAdmin && (
-                    <>
-                      <Link
-                        className="btn btn-sm btn-warning me-1"
-                        to={`/edit/${e._id}`}
-                      >
-                        Edit
-                      </Link>
+        <div className="employee-directory-stats mt-4">
+          {stats.map((stat) => (
+            <div key={stat.label} className={`employee-directory-stat-card ${stat.accentClass}`}>
+              <div className="employee-directory-stat-card__label">{stat.label}</div>
+              <div className="employee-directory-stat-card__value">{stat.value}</div>
+              <div className="employee-directory-stat-card__meta">{stat.meta}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-                      <button
-                        className={`btn btn-sm me-1 ${
-                          e.isActive ? "btn-secondary" : "btn-success"
-                        }`}
-                        onClick={() => toggleStatus(e._id, e.isActive)}
-                      >
-                        {e.isActive ? "Deactivate" : "Activate"}
-                      </button>
+      <div className="filter-card employee-directory-filter-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <h6 className="mb-1">Filters</h6>
+            <div className="form-help">
+              Narrow the list by keyword or status, then move directly into view, edit, export, or
+              bulk clean-up actions.
+            </div>
+          </div>
 
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => removeEmployee(e._id)}
-                      >
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </td>
+          <div className="d-flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={clearFilters}
+              disabled={!search && !status}
+            >
+              Clear Filters
+            </button>
+            {isAdmin ? (
+              <button type="button" className="btn btn-success" onClick={exportExcel}>
+                Export Excel
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="row g-3 mt-1">
+          <div className="col-md-8 col-xl-6">
+            <label className="form-label fw-semibold small text-uppercase text-muted">
+              Search Employee
+            </label>
+            <input
+              className="form-control"
+              placeholder="Search by code, name, or email"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+
+          <div className="col-md-4 col-xl-3">
+            <label className="form-label fw-semibold small text-uppercase text-muted">
+              Status
+            </label>
+            <select
+              className="form-select"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        {department ? (
+          <div className="alert alert-info py-2 mt-3 mb-0">
+            This list is currently filtered from a dashboard selection.
+          </div>
+        ) : hasFilters ? (
+          <div className="form-help mt-3">
+            Filtered results update automatically while you type or change the status.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="table-shell employee-directory-table-shell">
+        <div className="table-responsive">
+          <table className="table table-bordered table-striped align-middle employee-directory-table">
+            <thead className="table-dark">
+              <tr>
+                {isAdmin ? (
+                  <th className="text-center" style={{ width: "56px" }}>
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={allEmployeesSelected}
+                      onChange={toggleAllEmployeeSelections}
+                      disabled={!employees.length || bulkDeleteLoading}
+                      aria-label="Select all employees"
+                    />
+                  </th>
+                ) : null}
+                <th>Photo</th>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Departments</th>
+                <th>Sub Departments</th>
+                <th>Superior Employee</th>
+                <th>Sites</th>
+                <th>Sub Sites</th>
+                <th>Designation</th>
+                <th>Status</th>
+                <th width="220">Actions</th>
               </tr>
-            ))}
-        </tbody>
-      </table>
+            </thead>
+
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={isAdmin ? 12 : 11} className="text-center py-4">
+                    Loading employees...
+                  </td>
+                </tr>
+              ) : employees.length === 0 ? (
+                <tr>
+                  <td colSpan={isAdmin ? 12 : 11} className="text-center py-4">
+                    No employees found for the current filters.
+                  </td>
+                </tr>
+              ) : (
+                employees.map((employee) => (
+                  <tr key={employee._id}>
+                    {isAdmin ? (
+                      <td className="text-center">
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={selectedEmployeeIds.includes(String(employee._id))}
+                          onChange={() => toggleEmployeeSelection(employee._id)}
+                          disabled={bulkDeleteLoading}
+                          aria-label={`Select employee ${
+                            employee.employeeCode || employee.employeeName || ""
+                          }`}
+                        />
+                      </td>
+                    ) : null}
+                    <td>
+                      {employee.photo && !photoErrors[employee._id] ? (
+                        <img
+                          src={`${uploadBaseUrl}/uploads/${employee.photo}`}
+                          alt="emp"
+                          width="48"
+                          height="48"
+                          className="employee-directory-avatar"
+                          onError={() =>
+                            setPhotoErrors((prev) => ({ ...prev, [employee._id]: true }))
+                          }
+                        />
+                      ) : (
+                        <div className="employee-directory-avatar-fallback">
+                          {getEmployeeInitials(
+                            employee.employeeName || employee.employeeCode || employee.email
+                          )}
+                        </div>
+                      )}
+                    </td>
+
+                    <td>
+                      <span className="employee-directory-code">
+                        {employee.employeeCode || "-"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="employee-directory-cell-stack">
+                        <div className="employee-directory-primary">
+                          {employee.employeeName || "-"}
+                        </div>
+                        <div className="employee-directory-secondary">
+                          {employee.email || employee.designation?.name || "Employee profile"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="employee-directory-cell-stack">
+                        <div className="employee-directory-primary">
+                          {employee.departmentDisplay ||
+                            formatDepartmentList(
+                              employee.departmentDetails || employee.department
+                            ) ||
+                            "-"}
+                        </div>
+                        <div className="employee-directory-secondary">
+                          {Array.isArray(employee.departmentIds) && employee.departmentIds.length
+                            ? `${employee.departmentIds.length} mapped department${
+                                employee.departmentIds.length === 1 ? "" : "s"
+                              }`
+                            : "Department mapping pending"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="employee-directory-cell-stack">
+                        <div className="employee-directory-primary">
+                          {employee.subDepartmentDisplay ||
+                            employee.subDepartmentPath ||
+                            employee.subDepartmentName ||
+                            "-"}
+                        </div>
+                        <div className="employee-directory-secondary">
+                          {employee.subDepartmentDisplay ||
+                          employee.subDepartmentPath ||
+                          employee.subDepartmentName
+                            ? "Sub department assigned"
+                            : "No sub department"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="employee-directory-cell-stack">
+                        <div className="employee-directory-primary">
+                          {employee.superiorEmployeeName || "-"}
+                        </div>
+                        <div className="employee-directory-secondary">
+                          {employee.superiorEmployeeName
+                            ? "Reporting chain connected"
+                            : "Superior not assigned"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="employee-directory-cell-stack">
+                        <div className="employee-directory-primary">
+                          {formatSiteList(employee.sites) || "-"}
+                        </div>
+                        <div className="employee-directory-secondary">
+                          {Array.isArray(employee.sites) && employee.sites.length
+                            ? `${employee.sites.length} mapped site${
+                                employee.sites.length === 1 ? "" : "s"
+                              }`
+                            : "Site mapping pending"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="employee-directory-cell-stack">
+                        <div className="employee-directory-primary">
+                          {employee.subSiteDisplay || "-"}
+                        </div>
+                        <div className="employee-directory-secondary">
+                          {employee.subSiteDisplay ? "Sub site available" : "No sub site"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="employee-directory-pill">
+                        {employee.designation?.name || "Not assigned"}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span
+                        className={`badge ${employee.isActive ? "bg-success" : "bg-secondary"}`}
+                      >
+                        {employee.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+
+                    <td>
+                      <div className="employee-directory-actions app-icon-action-group">
+                        <Link
+                          className="btn btn-sm btn-info app-icon-action-btn"
+                          to={`/view/${employee._id}`}
+                          title={`View ${employee.employeeName || employee.employeeCode || "employee"}`}
+                          aria-label={`View ${employee.employeeName || employee.employeeCode || "employee"}`}
+                        >
+                          <ViewIcon />
+                        </Link>
+
+                        {isAdmin ? (
+                          <>
+                            <Link
+                              className="btn btn-sm btn-warning app-icon-action-btn"
+                              to={`/edit/${employee._id}`}
+                              title={`Edit ${employee.employeeName || employee.employeeCode || "employee"}`}
+                              aria-label={`Edit ${employee.employeeName || employee.employeeCode || "employee"}`}
+                            >
+                              <EditIcon />
+                            </Link>
+
+                            <button
+                              className={`btn btn-sm app-icon-action-btn ${
+                                employee.isActive ? "btn-secondary" : "btn-success"
+                              }`}
+                              onClick={() => toggleStatus(employee._id, employee.isActive)}
+                              title={`${
+                                employee.isActive ? "Deactivate" : "Activate"
+                              } ${employee.employeeName || employee.employeeCode || "employee"}`}
+                              aria-label={`${
+                                employee.isActive ? "Deactivate" : "Activate"
+                              } ${employee.employeeName || employee.employeeCode || "employee"}`}
+                            >
+                              <ToggleIcon active={employee.isActive} />
+                            </button>
+
+                            <button
+                              className="btn btn-sm btn-danger app-icon-action-btn"
+                              onClick={() => removeEmployee(employee._id)}
+                              title={`Delete ${employee.employeeName || employee.employeeCode || "employee"}`}
+                              aria-label={`Delete ${employee.employeeName || employee.employeeCode || "employee"}`}
+                            >
+                              <DeleteIcon />
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

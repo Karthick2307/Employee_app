@@ -49,6 +49,15 @@ const SiteSchema = new mongoose.Schema(
       ],
       default: []
     },
+    siteLeadNames: {
+      type: [
+        {
+          type: String,
+          trim: true
+        }
+      ],
+      default: []
+    },
     subSites: {
       type: [SubSiteSchema],
       default: []
