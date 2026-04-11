@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../api/axios";
+import { usePermissions } from "../context/PermissionContext";
 import { formatDepartmentList } from "../utils/departmentDisplay";
 import { formatSiteList } from "../utils/siteDisplay";
 
@@ -12,9 +13,11 @@ const getEmployeeInitial = (employee) =>
 
 export default function EmployeeView() {
   const { id } = useParams();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
-  const backPath = isAdmin ? "/employees" : "/dashboard";
+  const { can, getHomePath } = usePermissions();
+  const canViewEmployeeDirectory = can("employee_master", "view");
+  const canEditEmployee = can("employee_master", "edit");
+  const canViewOwnTasks = can("own_task", "view");
+  const backPath = canViewEmployeeDirectory ? "/employees" : getHomePath();
   const [emp, setEmp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
@@ -165,20 +168,20 @@ export default function EmployeeView() {
         </div>
 
         <div className="mt-4 d-flex flex-wrap gap-2">
-          {isAdmin && emp.isActive ? (
+          {canEditEmployee && emp.isActive ? (
             <Link to={`/edit/${emp._id}`} className="btn btn-warning">
               Edit
             </Link>
           ) : null}
 
-          {!isAdmin ? (
+          {canViewOwnTasks ? (
             <Link to="/own-tasks" className="btn btn-primary">
               Own Tasks
             </Link>
           ) : null}
 
           <Link to={backPath} className="btn btn-outline-secondary">
-            {isAdmin ? "Back to List" : "Back"}
+            {canViewEmployeeDirectory ? "Back to List" : "Back"}
           </Link>
         </div>
       </div>

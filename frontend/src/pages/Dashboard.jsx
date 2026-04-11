@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../api/axios";
 import DashboardFeedbackWidget from "../components/DashboardFeedbackWidget";
+import { usePermissions } from "../context/PermissionContext";
+import "../dashboard-redesign.css";
 import {
   formatChecklistTaskStatus,
   formatDate,
   formatDateTime,
-  formatMarkValue,
   formatTimelinessLabel,
   getChecklistTaskStatusBadgeClass,
   getTimelinessBadgeClass,
@@ -76,8 +77,9 @@ const getDashboardSectionKeyFromTitle = (title) => {
 const DASHBOARD_LEVEL_MENU = [
   {
     key: "companies",
+    icon: "building",
     label: "Companies",
-    eyebrow: "Company View",
+    eyebrow: "",
     title: "Companies",
     subtitle:
       "Show company overall mark with site, department, sub department, and employee totals.",
@@ -85,8 +87,9 @@ const DASHBOARD_LEVEL_MENU = [
   },
   {
     key: "sites",
+    icon: "location",
     label: "Sites",
-    eyebrow: "Site View",
+    eyebrow: "",
     title: "Sites",
     subtitle:
       "Show site overall mark with department, sub department, and employee totals.",
@@ -94,24 +97,27 @@ const DASHBOARD_LEVEL_MENU = [
   },
   {
     key: "departments",
+    icon: "hierarchy",
     label: "Departments",
-    eyebrow: "Department View",
+    eyebrow: "",
     title: "Departments",
     subtitle: "Show department overall mark with sub department and employee totals.",
     emptyMessage: "No departments are available in your scope.",
   },
   {
     key: "subDepartments",
+    icon: "layers",
     label: "Sub Departments",
-    eyebrow: "Sub Department View",
+    eyebrow: "",
     title: "Sub Departments",
     subtitle: "Show sub department overall mark with employee totals.",
     emptyMessage: "No sub departments are available in your scope.",
   },
   {
     key: "employees",
+    icon: "user",
     label: "Employees",
-    eyebrow: "Employee View",
+    eyebrow: "",
     title: "Employees",
     subtitle: "Show employee overall mark with checklist totals and assignment details.",
     emptyMessage: "No employees are available in your scope.",
@@ -174,12 +180,7 @@ const buildDashboardLevelCardContent = (levelKey, item = {}) => {
           { label: "Overall Mark", value: item.overallMark, kind: "mark" },
           { label: "Scored Checklists", value: item.scoredChecklistCount || 0 },
         ],
-        details: [
-          item.employeeCode ? `Employee Code: ${item.employeeCode}` : "",
-          item.departmentDisplay ? `Department: ${item.departmentDisplay}` : "",
-          item.subDepartmentDisplay ? `Sub Department: ${item.subDepartmentDisplay}` : "",
-          `Status: ${item.isActive === false ? "Inactive" : "Active"}`,
-        ].filter(Boolean),
+        details: [],
       };
     default:
       return {
@@ -191,6 +192,342 @@ const buildDashboardLevelCardContent = (levelKey, item = {}) => {
         details: [],
       };
   }
+};
+
+const buildUploadImageSrc = (uploadBaseUrl, photo) => {
+  const rawValue = String(photo || "").trim();
+  if (!rawValue) return "";
+
+  if (/^https?:\/\//i.test(rawValue)) {
+    return rawValue;
+  }
+
+  const normalizedValue = rawValue.replace(/\\/g, "/");
+
+  if (normalizedValue.startsWith("/uploads/")) {
+    return `${uploadBaseUrl}${normalizedValue}`;
+  }
+
+  if (normalizedValue.startsWith("uploads/")) {
+    return `${uploadBaseUrl}/${normalizedValue}`;
+  }
+
+  return `${uploadBaseUrl}/uploads/${encodeURIComponent(normalizedValue)}`;
+};
+
+const getDashboardLevelIconName = (levelKey) => {
+  switch (levelKey) {
+    case "companies":
+    case "company":
+      return "building";
+    case "sites":
+    case "site":
+    case "siteLead":
+      return "location";
+    case "departments":
+    case "department":
+    case "departmentLead":
+      return "hierarchy";
+    case "subDepartments":
+    case "subDepartment":
+      return "layers";
+    case "employees":
+    case "employee":
+      return "user";
+    case "mark":
+      return "spark";
+    case "completedTasks":
+      return "checklist";
+    default:
+      return "grid";
+  }
+};
+
+const DASHBOARD_STAT_CONFIG = {
+  primary: {
+    icon: "people",
+    eyebrow: "",
+    meta: "Employees visible in the current dashboard scope.",
+  },
+  success: {
+    icon: "checkCircle",
+    eyebrow: "",
+    meta: "Employees currently available for checklist activity.",
+  },
+  danger: {
+    icon: "warningTriangle",
+    eyebrow: "",
+    meta: "Inactive employee records that may need review.",
+  },
+  info: {
+    icon: "checklist",
+    eyebrow: "",
+    meta: "Checklist tasks being tracked across the workspace.",
+  },
+};
+
+function DashboardGlyph({ name, className = "" }) {
+  const commonProps = {
+    className,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+  };
+
+  switch (name) {
+    case "people":
+      return (
+        <svg {...commonProps}>
+          <path d="M16 19v-1a3 3 0 0 0-3-3h-2a3 3 0 0 0-3 3v1" />
+          <circle cx="12" cy="9" r="3.2" />
+          <path d="M6.5 18.5v-.6a2.4 2.4 0 0 0-2.4-2.4H3.8" />
+          <path d="M17.5 18.5v-.6a2.4 2.4 0 0 1 2.4-2.4h.3" />
+          <path d="M7.2 6.8a2.4 2.4 0 1 1-1.5 4.3" />
+          <path d="M16.8 6.8a2.4 2.4 0 1 0 1.5 4.3" />
+        </svg>
+      );
+    case "checkCircle":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="8.25" />
+          <path d="m8.5 12.2 2.3 2.3 4.8-5.1" />
+        </svg>
+      );
+    case "warningTriangle":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 4.2 20 18a1 1 0 0 1-.87 1.5H4.87A1 1 0 0 1 4 18L12 4.2Z" />
+          <path d="M12 9v4.6" />
+          <circle cx="12" cy="16.3" r=".7" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "checklist":
+      return (
+        <svg {...commonProps}>
+          <rect x="5" y="4.5" width="14" height="15" rx="2.4" />
+          <path d="m8.3 9 1.1 1.1 2-2.2" />
+          <path d="M12.8 9h2.9" />
+          <path d="m8.3 13.2 1.1 1.1 2-2.2" />
+          <path d="M12.8 13.2h2.9" />
+        </svg>
+      );
+    case "building":
+      return (
+        <svg {...commonProps}>
+          <path d="M6 20V6.5A1.5 1.5 0 0 1 7.5 5h9A1.5 1.5 0 0 1 18 6.5V20" />
+          <path d="M9 8.5h1.2" />
+          <path d="M13.8 8.5H15" />
+          <path d="M9 12h1.2" />
+          <path d="M13.8 12H15" />
+          <path d="M11 20v-3.2h2V20" />
+        </svg>
+      );
+    case "location":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 20s5.6-5.2 5.6-10a5.6 5.6 0 1 0-11.2 0c0 4.8 5.6 10 5.6 10Z" />
+          <circle cx="12" cy="10" r="2.3" />
+        </svg>
+      );
+    case "hierarchy":
+      return (
+        <svg {...commonProps}>
+          <rect x="3.8" y="4.5" width="6.3" height="4.5" rx="1.2" />
+          <rect x="13.9" y="4.5" width="6.3" height="4.5" rx="1.2" />
+          <rect x="8.9" y="14.5" width="6.3" height="4.5" rx="1.2" />
+          <path d="M7 9v2.4h10V9" />
+          <path d="M12 11.4v3.1" />
+        </svg>
+      );
+    case "layers":
+      return (
+        <svg {...commonProps}>
+          <path d="m12 4 7.5 4.2L12 12.5 4.5 8.2 12 4Z" />
+          <path d="m4.5 12 7.5 4.2 7.5-4.2" />
+          <path d="m4.5 15.8 7.5 4.2 7.5-4.2" />
+        </svg>
+      );
+    case "user":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="8.6" r="3.15" />
+          <path d="M6.4 19c.7-2.5 2.8-4 5.6-4s4.9 1.5 5.6 4" />
+        </svg>
+      );
+    case "spark":
+      return (
+        <svg {...commonProps}>
+          <path d="m12 3 1.7 4.8L18.5 9l-4.8 1.2L12 15l-1.7-4.8L5.5 9l4.8-1.2L12 3Z" />
+          <path d="m18.2 14.6.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" />
+        </svg>
+      );
+    case "grid":
+      return (
+        <svg {...commonProps}>
+          <rect x="4.2" y="4.2" width="6.4" height="6.4" rx="1.3" />
+          <rect x="13.4" y="4.2" width="6.4" height="6.4" rx="1.3" />
+          <rect x="4.2" y="13.4" width="6.4" height="6.4" rx="1.3" />
+          <rect x="13.4" y="13.4" width="6.4" height="6.4" rx="1.3" />
+        </svg>
+      );
+    case "arrowRight":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 12h13" />
+          <path d="m13 7 5 5-5 5" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+const getCountUpDecimalPlaces = (value) => {
+  const rawValue = String(value ?? 0).trim();
+  const normalizedValue = rawValue.replace(/,/g, "");
+
+  if (!normalizedValue || !Number.isFinite(Number(normalizedValue))) {
+    return 0;
+  }
+
+  const [, decimalPart = ""] = normalizedValue.split(".");
+  return decimalPart ? Math.min(2, decimalPart.length) : 0;
+};
+
+const isFiniteNumericValue = (value) => Number.isFinite(Number(value));
+
+const MIN_COUNT_UP_DURATION = 0.5;
+const MAX_COUNT_UP_DURATION = 2;
+const DEFAULT_COUNT_UP_DURATION = 1;
+
+const clampCountUpDuration = (duration) => {
+  const numericDuration = Number(duration);
+
+  if (!Number.isFinite(numericDuration)) {
+    return DEFAULT_COUNT_UP_DURATION;
+  }
+
+  return Math.min(MAX_COUNT_UP_DURATION, Math.max(MIN_COUNT_UP_DURATION, numericDuration));
+};
+
+function CountUp({ value, duration = DEFAULT_COUNT_UP_DURATION, className = "" }) {
+  const targetValue = Number(value ?? 0);
+  const decimals = useMemo(() => getCountUpDecimalPlaces(value), [value]);
+  const resolvedDurationMs = useMemo(
+    () => clampCountUpDuration(duration) * 1000,
+    [duration]
+  );
+  const [displayValue, setDisplayValue] = useState(0);
+  const formatter = useMemo(
+    () =>
+      new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      }),
+    [decimals]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    let resetFrameId = 0;
+    let animationFrameId = 0;
+
+    if (!Number.isFinite(targetValue)) {
+      resetFrameId = window.requestAnimationFrame(() => {
+        setDisplayValue(0);
+      });
+
+      return () => {
+        window.cancelAnimationFrame(resetFrameId);
+      };
+    }
+
+    if (
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+    ) {
+      resetFrameId = window.requestAnimationFrame(() => {
+        setDisplayValue(targetValue);
+      });
+
+      return () => {
+        window.cancelAnimationFrame(resetFrameId);
+      };
+    }
+
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+    const animate = (now) => {
+      const elapsed = now - startedAt;
+      const progress = Math.min(elapsed / resolvedDurationMs, 1);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      const nextValue = targetValue * easedProgress;
+
+      setDisplayValue(progress >= 1 ? targetValue : nextValue);
+
+      if (progress < 1) {
+        animationFrameId = window.requestAnimationFrame(animate);
+      }
+    };
+
+    resetFrameId = window.requestAnimationFrame(() => {
+      setDisplayValue(0);
+      animationFrameId = window.requestAnimationFrame(animate);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(resetFrameId);
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [resolvedDurationMs, targetValue]);
+
+  return (
+    <span className={["dashboard-count-up", className].filter(Boolean).join(" ")}>
+      {formatter.format(displayValue)}
+    </span>
+  );
+}
+
+const buildCountLabel = (value, singularLabel, pluralLabel = `${singularLabel}s`) => {
+  const numericValue = Number(value || 0);
+
+  return (
+    <>
+      <CountUp value={numericValue} duration={0.85} />
+      {" "}
+      {numericValue === 1 ? singularLabel : pluralLabel}
+    </>
+  );
+};
+
+const buildMarkSummaryText = (value) => (
+  <>
+    Mark <CountUp value={value ?? 0} duration={1.1} />
+  </>
+);
+
+const buildScoredChecklistText = (value) => {
+  const numericValue = Number(value || 0);
+
+  if (!numericValue) {
+    return "No scored checklists yet";
+  }
+
+  return buildCountLabel(numericValue, "scored checklist");
+};
+
+const renderCountUpValue = (value, className = "", duration = DEFAULT_COUNT_UP_DURATION) => {
+  if (!isFiniteNumericValue(value)) {
+    return value ?? "-";
+  }
+
+  return <CountUp value={value} className={className} duration={duration} />;
 };
 
 export default function Dashboard({
@@ -212,6 +549,7 @@ export default function Dashboard({
   showCompletedTaskCard = false,
   employeeDetailMode = "mark",
 }) {
+  const { role } = usePermissions();
   const navigate = useNavigate();
   const params = useParams();
   const routeCompanyId = useMemo(() => {
@@ -240,6 +578,8 @@ export default function Dashboard({
   const [pendingScrollIntent, setPendingScrollIntent] = useState("");
   const [showEmployeeMarksSection, setShowEmployeeMarksSection] = useState(false);
   const [expandedEmployeeMarkIds, setExpandedEmployeeMarkIds] = useState(() => new Set());
+  const loadDashboardRef = useRef(async () => {});
+  const loadDrilldownRef = useRef(async () => {});
   const uploadBaseUrl = useMemo(
     () => (api.defaults.baseURL || "http://localhost:5000/api").replace(/\/api\/?$/, ""),
     []
@@ -252,13 +592,81 @@ export default function Dashboard({
   const isColumnDrilldownLayout = drilldownLayout === "columns";
   const showEmployeeChecklistCards = employeeDetailMode === "checklists";
   const showLevelSidebarSummary = companyOverviewOnly && isCompanySiteDrilldown;
+  const isAdminWorkspace = role?.dashboardType === "admin" || role?.key === "main_admin";
+  const isEmployeeWorkspace = role?.dashboardType === "employee";
+  const dashboardStatCards = useMemo(() => {
+    const employeeTitle = isAdminWorkspace ? "Total Employees" : "Employees In Scope";
+    const employeeMeta = isAdminWorkspace
+      ? "Employees visible in the current dashboard scope."
+      : "Employees visible in your allowed site, department, or employee scope.";
+    const checklistTitle = isEmployeeWorkspace
+      ? "My Checklist Tasks"
+      : isAdminWorkspace
+      ? "Checklist Tasks"
+      : "Checklist Tasks In Scope";
+    const checklistMeta = isEmployeeWorkspace
+      ? "Checklist tasks currently assigned within your account scope."
+      : isAdminWorkspace
+      ? "Checklist tasks being tracked across the workspace."
+      : "Checklist tasks currently visible in your allowed scope.";
+
+    return [
+      {
+        title: employeeTitle,
+        value: data?.total || 0,
+        color: {
+          ...DASHBOARD_STAT_CONFIG.primary,
+          colorKey: "primary",
+          meta: employeeMeta,
+        },
+      },
+      {
+        title: isAdminWorkspace ? "Active Employees" : "Active In Scope",
+        value: data?.active || 0,
+        color: {
+          ...DASHBOARD_STAT_CONFIG.success,
+          colorKey: "success",
+          meta: isAdminWorkspace
+            ? "Employees currently available for checklist activity."
+            : "Active employee records available in your current scope.",
+        },
+      },
+      {
+        title: isAdminWorkspace ? "Inactive Employees" : "Inactive In Scope",
+        value: data?.inactive || 0,
+        color: {
+          ...DASHBOARD_STAT_CONFIG.danger,
+          colorKey: "danger",
+          meta: isAdminWorkspace
+            ? "Inactive employee records that may need review."
+            : "Inactive employee records inside your current scope.",
+        },
+      },
+      {
+        title: checklistTitle,
+        value: data?.totalChecklistTasks || 0,
+        color: {
+          ...DASHBOARD_STAT_CONFIG.info,
+          colorKey: "info",
+          meta: checklistMeta,
+        },
+      },
+    ];
+  }, [
+    data?.active,
+    data?.inactive,
+    data?.total,
+    data?.totalChecklistTasks,
+    isAdminWorkspace,
+    isEmployeeWorkspace,
+  ]);
 
   useEffect(() => {
-    loadDashboard();
+    void loadDashboardRef.current();
   }, []);
 
   useEffect(() => {
-    loadDrilldown();
+    void loadDrilldownRef.current();
   }, [
     drilldownVariant,
     markHierarchySource,
@@ -334,6 +742,9 @@ export default function Dashboard({
       setDrilldownLoading(false);
     }
   };
+
+  loadDashboardRef.current = loadDashboard;
+  loadDrilldownRef.current = loadDrilldown;
 
   const selectCompany = (companyId) => {
     if (companyOverviewOnly && companyDetailPath) {
@@ -488,7 +899,7 @@ export default function Dashboard({
     ? drilldownData.selectedDepartmentLead
     : drilldownData.selectedSite;
   const pageSubtitle = showLevelSidebarSummary
-    ? "Switch between company, site, department, sub department, and employee summaries from the left sidebar, then open a company to continue the drilldown."
+    ? "Switch between company, site, department, sub department, and employee summaries from the left sidebar."
     : isCompanySiteDrilldown
     ? hasAvailableSiteLeadStep
       ? hasAvailableDepartmentLeadStep
@@ -519,15 +930,17 @@ export default function Dashboard({
     mark: `${companySiteMarkStep}. ${employeeDetailStepLabel}`,
     completedTasks: `${companySiteCompletedTasksStep}. Mark Split-up`,
   };
-  const buildEmployeeCountText = (value) =>
-    `${value || 0} employee${Number(value || 0) === 1 ? "" : "s"}`;
+  const buildEmployeeCountText = (value) => buildCountLabel(value, "employee");
   const sidebarLevelConfig =
     DASHBOARD_LEVEL_MENU.find((item) => item.key === selectedSidebarLevel) ||
     DASHBOARD_LEVEL_MENU[0];
   const sidebarLevelSummaries = drilldownData.levelSummaries || emptyDrilldownData.levelSummaries;
-  const selectedSidebarRows = Array.isArray(sidebarLevelSummaries?.[selectedSidebarLevel])
-    ? sidebarLevelSummaries[selectedSidebarLevel]
-    : [];
+  const selectedSidebarRows =
+    selectedSidebarLevel === "employees" && Array.isArray(data?.employeeOverallMarks)
+      ? data.employeeOverallMarks
+      : Array.isArray(sidebarLevelSummaries?.[selectedSidebarLevel])
+      ? sidebarLevelSummaries[selectedSidebarLevel]
+      : [];
   const selectedSidebarEntityLabel = String(sidebarLevelConfig?.label || "Items")
     .trim()
     .toLowerCase();
@@ -663,11 +1076,15 @@ export default function Dashboard({
       </div>
 
       {showStatCards ? (
-        <div className="row g-3 mb-4">
-          <StatCard title="Total Employees" value={data.total} color="primary" />
-          <StatCard title="Active Employees" value={data.active} color="success" />
-          <StatCard title="Inactive Employees" value={data.inactive} color="secondary" />
-          <StatCard title="Checklist Tasks" value={data.totalChecklistTasks || 0} color="info" />
+        <div className="row g-3 mb-4 dashboard-summary-grid">
+          {dashboardStatCards.map((statCard) => (
+            <StatCard
+              key={statCard.title}
+              title={statCard.title}
+              value={statCard.value}
+              color={statCard.color}
+            />
+          ))}
         </div>
       ) : null}
 
@@ -691,7 +1108,7 @@ export default function Dashboard({
 
             <button
               type="button"
-              className="btn btn-outline-secondary btn-sm"
+              className="btn btn-outline-secondary btn-sm dashboard-action-btn dashboard-action-btn--ghost"
               onClick={resetDrilldown}
             >
               {useRouteCompanyId && companyOverviewPath ? "Back to Companies" : "Reset Drilldown"}
@@ -744,10 +1161,23 @@ export default function Dashboard({
                           onClick={() => setSelectedSidebarLevel(item.key)}
                         >
                           <div className="dashboard-level-sidebar__item-row">
-                            <span className="dashboard-level-sidebar__item-label">{item.label}</span>
-                            <span className="dashboard-level-sidebar__item-count">{itemCount}</span>
+                            <div className="dashboard-level-sidebar__item-head">
+                              <span className="dashboard-level-sidebar__item-icon">
+                                <DashboardGlyph name={item.icon} />
+                              </span>
+                              <div className="dashboard-level-sidebar__item-copy">
+                                <span className="dashboard-level-sidebar__item-label">
+                                  {item.label}
+                                </span>
+                                <span className="dashboard-level-sidebar__item-meta">
+                                  {item.subtitle}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="dashboard-level-sidebar__item-count">
+                              <CountUp value={itemCount} duration={0.75} />
+                            </span>
                           </div>
-                          <div className="dashboard-level-sidebar__item-meta">{item.subtitle}</div>
                         </button>
                       );
                     })}
@@ -762,13 +1192,9 @@ export default function Dashboard({
                 >
                   <div className="dashboard-level-toolbar mb-3">
                     <span className="summary-chip">
-                      {selectedSidebarRows.length} available {selectedSidebarEntityLabel}
+                      <CountUp value={selectedSidebarRows.length} duration={0.75} /> available{" "}
+                      {selectedSidebarEntityLabel}
                     </span>
-                    {selectedSidebarLevel === "companies" && companyDetailPath ? (
-                      <span className="summary-chip summary-chip--neutral">
-                        Click a company card to continue the drilldown.
-                      </span>
-                    ) : null}
                   </div>
 
                   {selectedSidebarRows.length ? (
@@ -782,10 +1208,20 @@ export default function Dashboard({
                         return (
                           <div className="col-12 col-md-6 col-xxl-4" key={item._id || item.name}>
                             <DashboardLevelSummaryCard
+                              variant={selectedSidebarLevel}
                               eyebrow={sidebarLevelConfig.eyebrow}
                               title={cardContent.title}
                               metrics={cardContent.metrics}
                               details={cardContent.details}
+                              photo={item.photo}
+                              photoError={photoErrors[item._id]}
+                              uploadBaseUrl={uploadBaseUrl}
+                              onPhotoError={() =>
+                                setPhotoErrors((prev) => ({
+                                  ...prev,
+                                  [item._id]: true,
+                                }))
+                              }
                               onClick={
                                 selectedSidebarLevel === "companies" && companyDetailPath
                                   ? () => selectCompany(item._id)
@@ -885,17 +1321,16 @@ export default function Dashboard({
                             <div className="col-12 col-md-6 col-xl-4" key={siteLead._id}>
                               <DrilldownChoiceCard
                                 title={siteLead.name || "-"}
-                                markText={
-                                  showDrilldownCardMarks
-                                    ? buildMarkLine(siteLead.overallMark)
-                                    : undefined
-                                }
-                                primaryText={`${siteLead.siteCount || 0} site${
-                                  Number(siteLead.siteCount || 0) === 1 ? "" : "s"
-                                }`}
-                                secondaryText={`${siteLead.employeeCount || 0} employee${
-                                  Number(siteLead.employeeCount || 0) === 1 ? "" : "s"
-                                }`}
+                              markText={
+                                showDrilldownCardMarks
+                                  ? buildMarkLine(siteLead.overallMark)
+                                  : undefined
+                              }
+                                primaryText={buildCountLabel(siteLead.siteCount, "site")}
+                                secondaryText={buildCountLabel(
+                                  siteLead.employeeCount,
+                                  "employee"
+                                )}
                                 active={String(selectedSiteLeadId) === String(siteLead._id)}
                                 onClick={() => selectSiteLead(siteLead._id)}
                               />
@@ -939,9 +1374,7 @@ export default function Dashboard({
                                   ? buildMarkLine(site.overallMark)
                                   : undefined
                               }
-                              primaryText={`${site.employeeCount || 0} employee${
-                                Number(site.employeeCount || 0) === 1 ? "" : "s"
-                              }`}
+                              primaryText={buildCountLabel(site.employeeCount, "employee")}
                               secondaryText={site.companyName || "Site"}
                               active={String(selectedSiteId) === String(site._id)}
                               onClick={() => selectSite(site._id)}
@@ -995,14 +1428,14 @@ export default function Dashboard({
                                     ? buildMarkLine(departmentLead.overallMark)
                                     : undefined
                                 }
-                                primaryText={`${
-                                  departmentLead.departmentCount || 0
-                                } department${
-                                  Number(departmentLead.departmentCount || 0) === 1 ? "" : "s"
-                                }`}
-                                secondaryText={`${departmentLead.employeeCount || 0} employee${
-                                  Number(departmentLead.employeeCount || 0) === 1 ? "" : "s"
-                                }`}
+                                primaryText={buildCountLabel(
+                                  departmentLead.departmentCount,
+                                  "department"
+                                )}
+                                secondaryText={buildCountLabel(
+                                  departmentLead.employeeCount,
+                                  "employee"
+                                )}
                                 active={
                                   String(selectedDepartmentLeadId) ===
                                   String(departmentLead._id)
@@ -1049,12 +1482,14 @@ export default function Dashboard({
                                   ? buildMarkLine(department.overallMark)
                                   : undefined
                               }
-                              primaryText={`${department.subDepartmentCount || 0} sub department${
-                                Number(department.subDepartmentCount || 0) === 1 ? "" : "s"
-                              }`}
-                              secondaryText={`${department.employeeCount || 0} employee${
-                                Number(department.employeeCount || 0) === 1 ? "" : "s"
-                              }`}
+                              primaryText={buildCountLabel(
+                                department.subDepartmentCount,
+                                "sub department"
+                              )}
+                              secondaryText={buildCountLabel(
+                                department.employeeCount,
+                                "employee"
+                              )}
                               active={String(selectedDepartmentId) === String(department._id)}
                               onClick={() => selectDepartment(department._id)}
                             />
@@ -1103,9 +1538,10 @@ export default function Dashboard({
                                   ? buildMarkLine(subDepartment.overallMark)
                                   : undefined
                               }
-                              primaryText={`${subDepartment.employeeCount || 0} employee${
-                                Number(subDepartment.employeeCount || 0) === 1 ? "" : "s"
-                              }`}
+                              primaryText={buildCountLabel(
+                                subDepartment.employeeCount,
+                                "employee"
+                              )}
                               secondaryText={subDepartment.departmentName || "Sub Department"}
                               active={
                                 String(selectedSubDepartmentId) === String(subDepartment._id)
@@ -1142,19 +1578,10 @@ export default function Dashboard({
                           <div className="col-12 col-md-6 col-xl-4" key={employee._id}>
                             <DrilldownChoiceCard
                               title={employee.employeeName || "-"}
-                              primaryText={`Mark ${
-                                employee?.overallMark !== null &&
-                                employee?.overallMark !== undefined
-                                  ? formatMarkValue(employee.overallMark)
-                                  : "-"
-                              }`}
-                              secondaryText={
+                              primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                              secondaryText={buildScoredChecklistText(
                                 employee.scoredChecklistCount
-                                  ? `${employee.scoredChecklistCount} scored checklist${
-                                      Number(employee.scoredChecklistCount || 0) === 1 ? "" : "s"
-                                    }`
-                                  : "No scored checklists yet"
-                              }
+                              )}
                               photo={employee.photo}
                               photoError={photoErrors[employee._id]}
                               uploadBaseUrl={uploadBaseUrl}
@@ -1287,12 +1714,11 @@ export default function Dashboard({
                                 ? buildMarkLine(siteLead.overallMark)
                                 : undefined
                             }
-                            primaryText={`${siteLead.siteCount || 0} site${
-                              Number(siteLead.siteCount || 0) === 1 ? "" : "s"
-                            }`}
-                            secondaryText={`${siteLead.employeeCount || 0} employee${
-                              Number(siteLead.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(siteLead.siteCount, "site")}
+                            secondaryText={buildCountLabel(
+                              siteLead.employeeCount,
+                              "employee"
+                            )}
                             active={String(selectedSiteLeadId) === String(siteLead._id)}
                             onClick={() => selectSiteLead(siteLead._id)}
                           />
@@ -1325,9 +1751,7 @@ export default function Dashboard({
                                 ? buildMarkLine(site.overallMark)
                                 : undefined
                             }
-                            primaryText={`${site.employeeCount || 0} employee${
-                              Number(site.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(site.employeeCount, "employee")}
                             secondaryText={site.companyName || "Site"}
                             active={String(selectedSiteId) === String(site._id)}
                             onClick={() => selectSite(site._id)}
@@ -1363,12 +1787,14 @@ export default function Dashboard({
                                 ? buildMarkLine(departmentLead.overallMark)
                                 : undefined
                             }
-                            primaryText={`${departmentLead.departmentCount || 0} department${
-                              Number(departmentLead.departmentCount || 0) === 1 ? "" : "s"
-                            }`}
-                            secondaryText={`${departmentLead.employeeCount || 0} employee${
-                              Number(departmentLead.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(
+                              departmentLead.departmentCount,
+                              "department"
+                            )}
+                            secondaryText={buildCountLabel(
+                              departmentLead.employeeCount,
+                              "employee"
+                            )}
                             active={
                               String(selectedDepartmentLeadId) ===
                               String(departmentLead._id)
@@ -1404,12 +1830,14 @@ export default function Dashboard({
                                 ? buildMarkLine(department.overallMark)
                                 : undefined
                             }
-                            primaryText={`${department.subDepartmentCount || 0} sub department${
-                              Number(department.subDepartmentCount || 0) === 1 ? "" : "s"
-                            }`}
-                            secondaryText={`${department.employeeCount || 0} employee${
-                              Number(department.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(
+                              department.subDepartmentCount,
+                              "sub department"
+                            )}
+                            secondaryText={buildCountLabel(
+                              department.employeeCount,
+                              "employee"
+                            )}
                             active={String(selectedDepartmentId) === String(department._id)}
                             onClick={() => selectDepartment(department._id)}
                           />
@@ -1444,9 +1872,10 @@ export default function Dashboard({
                                 ? buildMarkLine(subDepartment.overallMark)
                                 : undefined
                             }
-                            primaryText={`${subDepartment.employeeCount || 0} employee${
-                              Number(subDepartment.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(
+                              subDepartment.employeeCount,
+                              "employee"
+                            )}
                             secondaryText={subDepartment.departmentName || "Sub Department"}
                             active={String(selectedSubDepartmentId) === String(subDepartment._id)}
                             onClick={() => selectSubDepartment(subDepartment._id)}
@@ -1475,19 +1904,10 @@ export default function Dashboard({
                         <div className="col-12 col-md-6 col-xl-4" key={employee._id}>
                           <DrilldownChoiceCard
                             title={employee.employeeName || "-"}
-                            primaryText={`Mark ${
-                              employee?.overallMark !== null &&
-                              employee?.overallMark !== undefined
-                                ? formatMarkValue(employee.overallMark)
-                                : "-"
-                            }`}
-                            secondaryText={
+                            primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                            secondaryText={buildScoredChecklistText(
                               employee.scoredChecklistCount
-                                ? `${employee.scoredChecklistCount} scored checklist${
-                                    Number(employee.scoredChecklistCount || 0) === 1 ? "" : "s"
-                                  }`
-                                : "No scored checklists yet"
-                            }
+                            )}
                             photo={employee.photo}
                             photoError={photoErrors[employee._id]}
                             uploadBaseUrl={uploadBaseUrl}
@@ -1548,12 +1968,14 @@ export default function Dashboard({
                         <div className="col-12 col-md-6 col-xl-4" key={department._id}>
                           <DrilldownChoiceCard
                             title={department.name}
-                            primaryText={`${department.subDepartmentCount || 0} sub department${
-                              Number(department.subDepartmentCount || 0) === 1 ? "" : "s"
-                            }`}
-                            secondaryText={`${department.employeeCount || 0} employee${
-                              Number(department.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(
+                              department.subDepartmentCount,
+                              "sub department"
+                            )}
+                            secondaryText={buildCountLabel(
+                              department.employeeCount,
+                              "employee"
+                            )}
                             active={String(selectedDepartmentId) === String(department._id)}
                             onClick={() => selectDepartment(department._id)}
                           />
@@ -1582,9 +2004,10 @@ export default function Dashboard({
                           <div className="col-12 col-md-6 col-xl-4" key={subDepartment._id}>
                             <DrilldownChoiceCard
                               title={subDepartment.name || subDepartment.label}
-                              primaryText={`${subDepartment.employeeCount || 0} employee${
-                                Number(subDepartment.employeeCount || 0) === 1 ? "" : "s"
-                              }`}
+                              primaryText={buildCountLabel(
+                                subDepartment.employeeCount,
+                                "employee"
+                              )}
                               secondaryText={subDepartment.departmentName || "Sub Department"}
                               active={
                                 String(selectedSubDepartmentId) === String(subDepartment._id)
@@ -1621,19 +2044,10 @@ export default function Dashboard({
                           <div className="col-12 col-md-6 col-xl-4" key={employee._id}>
                             <DrilldownChoiceCard
                               title={employee.employeeName || "-"}
-                              primaryText={`Mark ${
-                                employee?.overallMark !== null &&
-                                employee?.overallMark !== undefined
-                                  ? formatMarkValue(employee.overallMark)
-                                  : "-"
-                              }`}
-                              secondaryText={
+                              primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                              secondaryText={buildScoredChecklistText(
                                 employee.scoredChecklistCount
-                                  ? `${employee.scoredChecklistCount} scored checklist${
-                                      Number(employee.scoredChecklistCount || 0) === 1 ? "" : "s"
-                                    }`
-                                  : "No scored checklists yet"
-                              }
+                              )}
                               photo={employee.photo}
                               photoError={photoErrors[employee._id]}
                               uploadBaseUrl={uploadBaseUrl}
@@ -1696,12 +2110,14 @@ export default function Dashboard({
                       <div className="col-12 col-md-6 col-xl-4" key={department._id}>
                         <DrilldownChoiceCard
                           title={department.name}
-                          primaryText={`${department.subDepartmentCount || 0} sub department${
-                            Number(department.subDepartmentCount || 0) === 1 ? "" : "s"
-                          }`}
-                          secondaryText={`${department.employeeCount || 0} employee${
-                            Number(department.employeeCount || 0) === 1 ? "" : "s"
-                          }`}
+                          primaryText={buildCountLabel(
+                            department.subDepartmentCount,
+                            "sub department"
+                          )}
+                          secondaryText={buildCountLabel(
+                            department.employeeCount,
+                            "employee"
+                          )}
                           active={String(selectedDepartmentId) === String(department._id)}
                           onClick={() => selectDepartment(department._id)}
                         />
@@ -1724,9 +2140,10 @@ export default function Dashboard({
                         <div className="col-12 col-md-6 col-xl-4" key={subDepartment._id}>
                           <DrilldownChoiceCard
                             title={subDepartment.name || subDepartment.label}
-                            primaryText={`${subDepartment.employeeCount || 0} employee${
-                              Number(subDepartment.employeeCount || 0) === 1 ? "" : "s"
-                            }`}
+                            primaryText={buildCountLabel(
+                              subDepartment.employeeCount,
+                              "employee"
+                            )}
                             secondaryText={subDepartment.departmentName || "Sub Department"}
                             active={String(selectedSubDepartmentId) === String(subDepartment._id)}
                             onClick={() => selectSubDepartment(subDepartment._id)}
@@ -1755,19 +2172,10 @@ export default function Dashboard({
                         <div className="col-12 col-md-6 col-xl-4" key={employee._id}>
                           <DrilldownChoiceCard
                             title={employee.employeeName || "-"}
-                            primaryText={`Mark ${
-                              employee?.overallMark !== null &&
-                              employee?.overallMark !== undefined
-                                ? formatMarkValue(employee.overallMark)
-                                : "-"
-                            }`}
-                            secondaryText={
+                            primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                            secondaryText={buildScoredChecklistText(
                               employee.scoredChecklistCount
-                                ? `${employee.scoredChecklistCount} scored checklist${
-                                    Number(employee.scoredChecklistCount || 0) === 1 ? "" : "s"
-                                  }`
-                                : "No scored checklists yet"
-                            }
+                            )}
                             photo={employee.photo}
                             photoError={photoErrors[employee._id]}
                             uploadBaseUrl={uploadBaseUrl}
@@ -1834,9 +2242,9 @@ export default function Dashboard({
               <div className="d-flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className={`btn btn-sm ${
+                  className={`btn btn-sm dashboard-action-btn ${
                     showEmployeeMarksSection ? "btn-outline-secondary" : "btn-outline-primary"
-                  }`}
+                  } ${showEmployeeMarksSection ? "dashboard-action-btn--ghost" : ""}`}
                   onClick={toggleEmployeeMarksSection}
                 >
                   {showEmployeeMarksSection ? "Collapse Employees" : "Expand Employees"}
@@ -1846,7 +2254,7 @@ export default function Dashboard({
                   <div className="d-flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="btn btn-outline-primary btn-sm"
+                      className="btn btn-outline-primary btn-sm dashboard-action-btn"
                       onClick={expandAllEmployeeMarks}
                       disabled={areAllEmployeeMarksExpanded}
                     >
@@ -1854,7 +2262,7 @@ export default function Dashboard({
                     </button>
                     <button
                       type="button"
-                      className="btn btn-outline-secondary btn-sm"
+                      className="btn btn-outline-secondary btn-sm dashboard-action-btn dashboard-action-btn--ghost"
                       onClick={collapseAllEmployeeMarks}
                       disabled={!expandedEmployeeMarkIds.size}
                     >
@@ -1900,20 +2308,40 @@ function buildMarkLine(value) {
   return (
     <>
       <span className="dashboard-mark-line__label">Mark</span>
-      <span className="dashboard-mark-line__value">
-        {value !== null && value !== undefined ? formatMarkValue(value) : "-"}
-      </span>
+      <CountUp value={value ?? 0} className="dashboard-mark-line__value" duration={1.1} />
     </>
   );
 }
 
 function StatCard({ title, value, color }) {
+  const statConfig =
+    typeof color === "string"
+      ? DASHBOARD_STAT_CONFIG[color] || DASHBOARD_STAT_CONFIG.primary
+      : color || DASHBOARD_STAT_CONFIG.primary;
+  const cardClassName =
+    typeof color === "string" ? color : color?.colorKey || "primary";
+
   return (
     <div className="col-12 col-md-6 col-xl-3">
-      <div className={`card text-white bg-${color} h-100 dashboard-stat-card`}>
-        <div className="card-body text-center">
-          <h6>{title}</h6>
-          <h2>{value}</h2>
+      <div className={`card h-100 dashboard-stat-card dashboard-stat-card--${cardClassName}`}>
+        <div className="card-body dashboard-stat-card__body">
+          <div className="dashboard-stat-card__icon-ring">
+            <DashboardGlyph
+              name={statConfig.icon}
+              className="dashboard-stat-card__icon"
+            />
+          </div>
+
+          <div className="dashboard-stat-card__copy">
+            {statConfig.eyebrow ? (
+              <div className="dashboard-stat-card__eyebrow">{statConfig.eyebrow}</div>
+            ) : null}
+            <h6 className="dashboard-stat-card__title">{title}</h6>
+            <div className="dashboard-stat-card__value">
+              <CountUp value={value} duration={1} />
+            </div>
+            <div className="dashboard-stat-card__meta">{statConfig.meta}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1922,15 +2350,27 @@ function StatCard({ title, value, color }) {
 
 function DrilldownPanel({ title, subtitle, children }) {
   const sectionKey = getDashboardSectionKeyFromTitle(title);
+  const iconName = getDashboardLevelIconName(sectionKey);
 
   return (
     <div
       className="card h-100 border dashboard-panel-card dashboard-step-panel"
       data-dashboard-section={sectionKey || undefined}
     >
-      <div className="card-body">
-        <h6 className="mb-1">{title}</h6>
-        <div className="text-muted small mb-3">{subtitle}</div>
+      <div className="card-body dashboard-panel-card__body">
+        <div className="dashboard-panel-card__header">
+          <div className="dashboard-panel-card__heading">
+            <span className="dashboard-panel-card__icon">
+              <DashboardGlyph name={iconName} />
+            </span>
+            <div>
+              <h6 className="mb-1 dashboard-panel-card__title">{title}</h6>
+              <div className="text-muted small mb-3 dashboard-panel-card__subtitle">
+                {subtitle}
+              </div>
+            </div>
+          </div>
+        </div>
         {children}
       </div>
     </div>
@@ -1992,7 +2432,7 @@ function DrilldownChoiceCard({
   return (
     <button
       type="button"
-      className={`btn p-0 w-100 text-start h-100 ${
+      className={`btn p-0 w-100 text-start h-100 dashboard-choice-button ${
         active ? "shadow-sm" : ""
       }`}
       onClick={onClick}
@@ -2003,10 +2443,11 @@ function DrilldownChoiceCard({
           active ? "bg-primary-subtle border border-primary" : "bg-light border-0"
         }`}
       >
-        <div className="card-body d-flex align-items-center gap-3">
+        <div className="card-body d-flex align-items-center gap-3 dashboard-choice-card__body">
           {showPhoto ? (
             <img
-              src={`${uploadBaseUrl}/uploads/${photo}`}
+              className="dashboard-choice-card__avatar"
+              src={buildUploadImageSrc(uploadBaseUrl, photo)}
               alt={title || "Item"}
               width="56"
               height="56"
@@ -2015,22 +2456,41 @@ function DrilldownChoiceCard({
             />
           ) : (
             <div
-              className="d-flex align-items-center justify-content-center fw-semibold text-secondary bg-white border"
+              className="d-flex align-items-center justify-content-center fw-semibold text-secondary bg-white border dashboard-choice-card__avatar dashboard-choice-card__avatar--fallback"
               style={{ width: 56, height: 56, borderRadius: "50%" }}
             >
               {cardInitial}
             </div>
           )}
 
-          <div className="flex-grow-1">
-            <div className="fw-semibold text-dark">{title || "-"}</div>
-            {markText ? <div className="dashboard-mark-line text-primary mt-1">{markText}</div> : null}
+          <div className="flex-grow-1 dashboard-choice-card__content">
+            <div className="dashboard-choice-card__top">
+              <div className="fw-semibold text-dark dashboard-choice-card__title">
+                {title || "-"}
+              </div>
+              <span className="dashboard-mini-action">
+                Open
+                <DashboardGlyph
+                  name="arrowRight"
+                  className="dashboard-mini-action__icon"
+                />
+              </span>
+            </div>
+            {markText ? (
+              <div className="dashboard-mark-line text-primary mt-1">{markText}</div>
+            ) : null}
             {primaryText ? (
-              <div className={markText ? "small text-muted mt-1" : "text-primary fw-bold mt-1"}>
+              <div
+                className={`dashboard-choice-card__meta ${
+                  markText ? "small text-muted mt-1" : "text-primary fw-bold mt-1"
+                }`}
+              >
                 {primaryText}
               </div>
             ) : null}
-            {secondaryText ? <small className="text-muted">{secondaryText}</small> : null}
+            {secondaryText ? (
+              <small className="text-muted dashboard-choice-card__submeta">{secondaryText}</small>
+            ) : null}
           </div>
         </div>
       </div>
@@ -2039,26 +2499,67 @@ function DrilldownChoiceCard({
 }
 
 function DashboardLevelSummaryCard({
+  variant = "default",
   eyebrow = "Summary",
   title,
   metrics = [],
   details = [],
+  photo,
+  photoError,
+  uploadBaseUrl,
+  onPhotoError,
   onClick,
 }) {
   const CardTag = onClick ? "button" : "div";
+  const cardInitial = String(title || "").trim().charAt(0).toUpperCase() || "?";
+  const showEmployeeAvatar = variant === "employees";
+  const showPhoto = showEmployeeAvatar && photo && !photoError;
+  const levelIconName = getDashboardLevelIconName(variant);
 
   return (
     <CardTag
       type={onClick ? "button" : undefined}
-      className={`dashboard-level-card ${onClick ? "dashboard-level-card--interactive" : ""}`}
+      className={`dashboard-level-card ${
+        onClick ? "dashboard-level-card--interactive" : ""
+      } ${showEmployeeAvatar ? "dashboard-level-card--employee" : ""}`}
       onClick={onClick}
     >
       <div className="dashboard-level-card__header">
-        <div>
-          <div className="dashboard-level-card__eyebrow">{eyebrow}</div>
-          <div className="dashboard-level-card__title">{title || "-"}</div>
+        <div
+          className={`dashboard-level-card__identity ${
+            showEmployeeAvatar ? "dashboard-level-card__identity--employee" : ""
+          }`}
+        >
+          {showEmployeeAvatar ? (
+            showPhoto ? (
+              <img
+                className="dashboard-level-card__avatar"
+                src={buildUploadImageSrc(uploadBaseUrl, photo)}
+                alt={title || "Employee"}
+                onError={onPhotoError}
+              />
+            ) : (
+              <div className="dashboard-level-card__avatar dashboard-level-card__avatar--fallback">
+                {cardInitial}
+              </div>
+            )
+          ) : (
+            <div className="dashboard-level-card__level-badge">
+              <DashboardGlyph name={levelIconName} />
+            </div>
+          )}
+
+          <div>
+            {eyebrow ? <div className="dashboard-level-card__eyebrow">{eyebrow}</div> : null}
+            <div className="dashboard-level-card__title">{title || "-"}</div>
+          </div>
         </div>
-        {onClick ? <span className="summary-chip summary-chip--neutral">Open</span> : null}
+        {onClick ? (
+          <span className="dashboard-mini-action">
+            Open
+            <DashboardGlyph name="arrowRight" className="dashboard-mini-action__icon" />
+          </span>
+        ) : null}
       </div>
 
       <div className="dashboard-level-card__metrics">
@@ -2073,11 +2574,11 @@ function DashboardLevelSummaryCard({
                 metric.kind === "mark" ? "dashboard-level-card__metric-value--mark" : ""
               }`}
             >
-              {metric.kind === "mark"
-                ? metric.value !== null && metric.value !== undefined
-                  ? formatMarkValue(metric.value)
-                  : "-"
-                : metric.value ?? "-"}
+              {renderCountUpValue(
+                metric.kind === "mark" ? metric.value ?? 0 : metric.value,
+                "",
+                metric.kind === "mark" ? 1.1 : 0.85
+              )}
             </div>
           </div>
         ))}
@@ -2124,7 +2625,7 @@ function EmployeeMarkAccordionItem({
         <div className="card-body d-flex flex-wrap align-items-center gap-3">
           {showPhoto ? (
             <img
-              src={`${uploadBaseUrl}/uploads/${employee.photo}`}
+              src={buildUploadImageSrc(uploadBaseUrl, employee.photo)}
               alt={employee.employeeName || "Employee"}
               width="56"
               height="56"
@@ -2153,11 +2654,7 @@ function EmployeeMarkAccordionItem({
                 {buildMarkLine(hasMark ? employee.overallMark : null)}
               </div>
               <div className="small text-muted">
-                {employee.scoredChecklistCount
-                  ? `${employee.scoredChecklistCount} scored checklist${
-                      employee.scoredChecklistCount === 1 ? "" : "s"
-                    }`
-                  : "No scored checklists yet"}
+                {buildScoredChecklistText(employee.scoredChecklistCount)}
               </div>
             </div>
 
@@ -2216,7 +2713,7 @@ function EmployeeMarkCard({ employee, photoError, uploadBaseUrl, onPhotoError })
       <div className="card-body d-flex align-items-center gap-3">
         {showPhoto ? (
           <img
-            src={`${uploadBaseUrl}/uploads/${employee.photo}`}
+            src={buildUploadImageSrc(uploadBaseUrl, employee.photo)}
             alt={employee.employeeName || "Employee"}
             width="56"
             height="56"
@@ -2238,11 +2735,7 @@ function EmployeeMarkCard({ employee, photoError, uploadBaseUrl, onPhotoError })
             {buildMarkLine(hasMark ? employee.overallMark : null)}
           </div>
           <small className="text-muted">
-            {employee.scoredChecklistCount
-              ? `${employee.scoredChecklistCount} scored checklist${
-                  employee.scoredChecklistCount === 1 ? "" : "s"
-                }`
-              : "No scored checklists yet"}
+            {buildScoredChecklistText(employee.scoredChecklistCount)}
           </small>
         </div>
       </div>
@@ -2278,7 +2771,7 @@ function EmployeeChecklistCardGrid({
                   <div className="small text-muted">Mark</div>
                   <div className="fw-bold text-primary">
                     {task.finalMark !== null && task.finalMark !== undefined
-                      ? formatMarkValue(task.finalMark)
+                      ? renderCountUpValue(task.finalMark, "", 1.1)
                       : "-"}
                   </div>
                 </div>
@@ -2330,7 +2823,6 @@ function EmployeeTaskSplitupTable({
     const parsedValue = Number(task?.finalMark);
     return Number.isFinite(parsedValue) ? total + parsedValue : total;
   }, 0);
-  const totalMarkLabel = formatMarkValue(totalMark);
   const rowSpan = Math.max(safeTasks.length, 1);
 
   return (
@@ -2359,23 +2851,23 @@ function EmployeeTaskSplitupTable({
                 <>
                   <td rowSpan={rowSpan}>{companyName || "-"}</td>
                   <td rowSpan={rowSpan} className="fw-bold text-primary">
-                    {totalMarkLabel}
+                    {renderCountUpValue(totalMark, "", 1.1)}
                   </td>
                   <td rowSpan={rowSpan}>{siteName || "-"}</td>
                   <td rowSpan={rowSpan} className="fw-bold text-primary">
-                    {totalMarkLabel}
+                    {renderCountUpValue(totalMark, "", 1.1)}
                   </td>
                   <td rowSpan={rowSpan}>{departmentName || "-"}</td>
                   <td rowSpan={rowSpan} className="fw-bold text-primary">
-                    {totalMarkLabel}
+                    {renderCountUpValue(totalMark, "", 1.1)}
                   </td>
                   <td rowSpan={rowSpan}>{subDepartmentName || "-"}</td>
                   <td rowSpan={rowSpan} className="fw-bold text-primary">
-                    {totalMarkLabel}
+                    {renderCountUpValue(totalMark, "", 1.1)}
                   </td>
                   <td rowSpan={rowSpan}>{employeeName || "-"}</td>
                   <td rowSpan={rowSpan} className="fw-bold text-primary">
-                    {totalMarkLabel}
+                    {renderCountUpValue(totalMark, "", 1.1)}
                   </td>
                 </>
               ) : null}
@@ -2385,7 +2877,7 @@ function EmployeeTaskSplitupTable({
               </td>
               <td className="fw-bold text-primary">
                 {task?.finalMark !== null && task?.finalMark !== undefined
-                  ? formatMarkValue(task.finalMark)
+                  ? renderCountUpValue(task.finalMark, "", 1.1)
                   : "-"}
               </td>
             </tr>
@@ -2393,9 +2885,9 @@ function EmployeeTaskSplitupTable({
           <tr className="table-light">
             <td colSpan="8" />
             <td className="fw-semibold">Total mark</td>
-            <td className="fw-bold text-primary">{totalMarkLabel}</td>
+            <td className="fw-bold text-primary">{renderCountUpValue(totalMark, "", 1.1)}</td>
             <td className="fw-semibold">Total mark</td>
-            <td className="fw-bold text-primary">{totalMarkLabel}</td>
+            <td className="fw-bold text-primary">{renderCountUpValue(totalMark, "", 1.1)}</td>
           </tr>
         </tbody>
       </table>

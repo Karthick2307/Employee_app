@@ -7,6 +7,11 @@ const Employee = require("../models/Employee");
 const PersonalTask = require("../models/PersonalTask");
 const Site = require("../models/Site");
 const User = require("../models/User");
+const {
+  buildChecklistMasterScopeFilter,
+  isAllScope,
+  resolveAccessibleEmployeeIds,
+} = require("../services/accessScope.service");
 
 const normalizeId = (value) => String(value?._id || value || "").trim();
 const normalizeText = (value) => String(value || "").trim();
@@ -112,6 +117,22 @@ const sortByLabel = (left, right) =>
     "en",
     { sensitivity: "base" }
   );
+
+const getSortableOverallMark = (item) => {
+  const parsedValue = Number(item?.overallMark);
+  return Number.isFinite(parsedValue) ? parsedValue : Number.NEGATIVE_INFINITY;
+};
+
+const sortByOverallMarkDescending = (left, right) => {
+  const leftMark = getSortableOverallMark(left);
+  const rightMark = getSortableOverallMark(right);
+
+  if (leftMark !== rightMark) {
+    return rightMark - leftMark;
+  }
+
+  return sortByLabel(left, right);
+};
 
 const findSubDepartmentTrail = (rows = [], subDepartmentId, trail = []) => {
   for (const row of rows) {
@@ -235,7 +256,7 @@ const buildDepartmentChoices = (departmentDocs = [], employees = []) => {
       };
     })
     .filter((department) => department.employeeCount > 0)
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 };
 
 const buildScopedSubDepartmentChoices = (departmentDocs = [], employees = []) => {
@@ -248,7 +269,7 @@ const buildScopedSubDepartmentChoices = (departmentDocs = [], employees = []) =>
 
       return buildSubDepartmentChoices(departmentDoc, departmentEmployees);
     })
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 };
 
 const buildSubDepartmentChoices = (departmentDoc, employees = []) => {
@@ -267,7 +288,7 @@ const buildSubDepartmentChoices = (departmentDoc, employees = []) => {
       };
     })
     .filter((subDepartment) => subDepartment.employeeCount > 0)
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 };
 
 const buildCompanyChoices = (companyDocs = [], siteDocs = [], employees = []) => {
@@ -314,7 +335,7 @@ const buildCompanyChoices = (companyDocs = [], siteDocs = [], employees = []) =>
         scoredChecklistCount: markSummary.scoredChecklistCount,
       };
     })
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 };
 
 const buildSiteChoices = (siteDocs = [], employees = [], companyName = "") => {
@@ -344,7 +365,7 @@ const buildSiteChoices = (siteDocs = [], employees = [], companyName = "") => {
         scoredChecklistCount: markSummary.scoredChecklistCount,
       };
     })
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 };
 
 const buildSiteLeadChoices = (siteDocs = [], employees = []) =>
@@ -375,7 +396,7 @@ const buildSiteLeadChoices = (siteDocs = [], employees = []) =>
       };
     })
     .filter((lead) => lead.siteCount > 0)
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 
 const buildDepartmentLeadChoices = (departmentDocs = [], employees = []) =>
   Array.from(
@@ -407,7 +428,7 @@ const buildDepartmentLeadChoices = (departmentDocs = [], employees = []) =>
       };
     })
     .filter((lead) => lead.departmentCount > 0)
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
 
 const buildCompletedTaskRows = async (employeeId) => {
   const normalizedEmployeeId = normalizeId(employeeId);
@@ -432,11 +453,76 @@ const getLatestDateValue = (values = []) =>
 
 const filterDashboardSnapshotForViewer = async ({
   user,
+  access = null,
   companyDocs = [],
   departmentDocs = [],
   siteDocs = [],
   employees = [],
 }) => {
+  if (access) {
+    if (isAllScope(access)) {
+      return { companyDocs, departmentDocs, siteDocs, employees };
+    }
+
+    const accessibleEmployeeIds = await resolveAccessibleEmployeeIds(access);
+    const accessibleEmployeeIdSet = new Set(accessibleEmployeeIds);
+    const scopedEmployees = employees.filter((employee) =>
+      accessibleEmployeeIdSet.has(normalizeId(employee?._id))
+    );
+    const scopedSiteIdSet = new Set(normalizeIdList(access?.scope?.siteIds));
+    const scopedDepartmentIdSet = new Set(normalizeIdList(access?.scope?.departmentIds));
+    const scopedCompanyIdSet = new Set(normalizeIdList(access?.scope?.companyIds));
+    const scopedCompanyNameSet = new Set();
+
+    scopedEmployees.forEach((employee) => {
+      (employee.siteIds || []).forEach((siteId) => {
+        if (siteId) {
+          scopedSiteIdSet.add(siteId);
+        }
+      });
+
+      (employee.departmentIds || []).forEach((departmentId) => {
+        if (departmentId) {
+          scopedDepartmentIdSet.add(departmentId);
+        }
+      });
+    });
+
+    const scopedSiteDocs = siteDocs.filter((siteDoc) => {
+      const siteId = normalizeId(siteDoc?._id);
+      const matchesScope = scopedSiteIdSet.has(siteId);
+
+      if (matchesScope) {
+        const companyName = normalizeText(siteDoc?.companyName);
+        if (companyName) {
+          scopedCompanyNameSet.add(companyName);
+        }
+      }
+
+      return matchesScope;
+    });
+
+    scopedSiteDocs.forEach((siteDoc) => {
+      const companyName = normalizeText(siteDoc?.companyName);
+      if (companyName) {
+        scopedCompanyNameSet.add(companyName);
+      }
+    });
+
+    return {
+      companyDocs: companyDocs.filter((companyDoc) => {
+        const companyId = normalizeId(companyDoc?._id);
+        const companyName = normalizeText(companyDoc?.name);
+        return scopedCompanyIdSet.has(companyId) || scopedCompanyNameSet.has(companyName);
+      }),
+      departmentDocs: departmentDocs.filter((departmentDoc) =>
+        scopedDepartmentIdSet.has(normalizeId(departmentDoc?._id))
+      ),
+      siteDocs: scopedSiteDocs,
+      employees: scopedEmployees,
+    };
+  }
+
   if (!user || isAdminRequester(user)) {
     return { companyDocs, departmentDocs, siteDocs, employees };
   }
@@ -591,7 +677,7 @@ const filterDashboardSnapshotForViewer = async ({
   };
 };
 
-const buildDashboardSnapshot = async (user = null) => {
+const buildDashboardSnapshot = async (user = null, access = null) => {
   const [companyDocs, departmentDocs, siteDocs, employeeDocs, employeeMarkRows] = await Promise.all([
     Company.find({}, "name directorNames").sort({ name: 1 }).lean(),
     Department.find({}, "name subDepartments headNames departmentLeadNames").sort({ name: 1 }).lean(),
@@ -631,9 +717,10 @@ const buildDashboardSnapshot = async (user = null) => {
 
   const employees = employeeDocs
     .map((employee) => buildEmployeeDashboardRow(employee, employeeMarkMap))
-    .sort(sortByLabel);
+    .sort(sortByOverallMarkDescending);
   const scopedSnapshot = await filterDashboardSnapshotForViewer({
     user,
+    access,
     companyDocs,
     departmentDocs,
     siteDocs,
@@ -664,6 +751,178 @@ const buildDashboardSnapshot = async (user = null) => {
     subDepartments,
   };
 };
+
+const countScopedChecklistTasks = async (access = null, scopedEmployees = []) => {
+  if (!access || isAllScope(access)) {
+    return ChecklistTask.countDocuments();
+  }
+
+  const checklistFilter = await buildChecklistMasterScopeFilter(access);
+  if (checklistFilter?._id === null) {
+    return 0;
+  }
+
+  const matchingChecklists = await Checklist.find(checklistFilter, "_id").lean();
+  const checklistIds = normalizeIdList(matchingChecklists.map((checklist) => checklist._id))
+    .filter((checklistId) => Types.ObjectId.isValid(checklistId))
+    .map((checklistId) => new Types.ObjectId(checklistId));
+
+  if (!checklistIds.length) {
+    return 0;
+  }
+
+  const scopedEmployeeIds = normalizeIdList(
+    (scopedEmployees || []).map((employee) => employee._id)
+  )
+    .filter((employeeId) => Types.ObjectId.isValid(employeeId))
+    .map((employeeId) => new Types.ObjectId(employeeId));
+
+  const taskFilter = {
+    checklist: { $in: checklistIds },
+  };
+
+  if (scopedEmployeeIds.length) {
+    taskFilter.assignedEmployee = { $in: scopedEmployeeIds };
+  }
+
+  return ChecklistTask.countDocuments(taskFilter);
+};
+
+const parseDateBoundary = (value, boundary = "start") => {
+  const normalizedValue = normalizeText(value);
+  if (!normalizedValue) return null;
+
+  const parsedValue = new Date(normalizedValue);
+  if (Number.isNaN(parsedValue.getTime())) {
+    return null;
+  }
+
+  if (boundary === "end") {
+    parsedValue.setHours(23, 59, 59, 999);
+  } else {
+    parsedValue.setHours(0, 0, 0, 0);
+  }
+
+  return parsedValue;
+};
+
+const formatScheduleTypeLabel = (value) => {
+  const normalizedValue = normalizeText(value).toLowerCase();
+  if (!normalizedValue) return "";
+
+  return normalizedValue
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const buildSelectOption = (id, label) => ({
+  _id: id,
+  name: label,
+  label,
+});
+
+const buildSummaryFilterEmployees = ({
+  employees = [],
+  siteDocs = [],
+  company = "",
+  site = "",
+  department = "",
+  subDepartment = "",
+  employee = "",
+}) => {
+  const normalizedCompany = normalizeText(company);
+  const normalizedSite = normalizeId(site);
+  const normalizedDepartment = normalizeId(department);
+  const normalizedSubDepartment = normalizeId(subDepartment);
+  const normalizedEmployee = normalizeId(employee);
+  const siteById = new Map(
+    (siteDocs || []).map((siteDoc) => [normalizeId(siteDoc?._id), siteDoc])
+  );
+
+  return (employees || []).filter((employeeRow) => {
+    if (normalizedEmployee && employeeRow._id !== normalizedEmployee) {
+      return false;
+    }
+
+    if (normalizedSubDepartment && !(employeeRow.subDepartmentIds || []).includes(normalizedSubDepartment)) {
+      return false;
+    }
+
+    if (normalizedDepartment && !(employeeRow.departmentIds || []).includes(normalizedDepartment)) {
+      return false;
+    }
+
+    if (normalizedSite && !(employeeRow.siteIds || []).includes(normalizedSite)) {
+      return false;
+    }
+
+    if (normalizedCompany) {
+      const matchesCompany = (employeeRow.siteIds || []).some((siteId) => {
+        const siteDoc = siteById.get(siteId);
+        return normalizeText(siteDoc?.companyName) === normalizedCompany;
+      });
+
+      if (!matchesCompany) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+};
+
+const buildHierarchicalSummaryCards = ({
+  totalChecklistMark = 0,
+  selectedCompany = null,
+  selectedSite = null,
+  selectedDepartment = null,
+  selectedSubDepartment = null,
+  selectedEmployee = null,
+  checklistTypeLabel = "",
+  employeeCount = 0,
+}) => ({
+  company: selectedCompany
+    ? {
+        label: "Company",
+        name: selectedCompany.name || "-",
+        totalMark: roundMarkValue(totalChecklistMark) || 0,
+      }
+    : null,
+  site: selectedSite
+    ? {
+        label: "Site",
+        name: selectedSite.name || "-",
+        totalMark: roundMarkValue(totalChecklistMark) || 0,
+      }
+    : null,
+  department: selectedDepartment
+    ? {
+        label: "Department",
+        name: selectedDepartment.name || "-",
+        totalMark: roundMarkValue(totalChecklistMark) || 0,
+      }
+    : null,
+  subDepartment: selectedSubDepartment
+    ? {
+        label: "Sub-Department",
+        name: selectedSubDepartment.label || selectedSubDepartment.name || "-",
+        totalMark: roundMarkValue(totalChecklistMark) || 0,
+      }
+    : null,
+  employee: {
+    label: "Employee",
+    name:
+      selectedEmployee?.employeeName ||
+      selectedEmployee?.employeeCode ||
+      (employeeCount === 1 ? "1 employee" : `${employeeCount} employees`),
+    totalMark: roundMarkValue(totalChecklistMark) || 0,
+  },
+  checklist: {
+    label: "Checklist",
+    name: checklistTypeLabel || "All Checklist Types",
+    totalMark: roundMarkValue(totalChecklistMark) || 0,
+  },
+});
 
 exports.getWelcomeSummary = async (req, res) => {
   try {
@@ -781,19 +1040,18 @@ exports.getDashboardStats = async (req, res) => {
   try {
     const [
       snapshot,
-      totalChecklistTasks,
       latestEmployee,
       latestChecklist,
       latestChecklistTask,
       latestDepartment,
     ] = await Promise.all([
-      buildDashboardSnapshot(req.user),
-      ChecklistTask.countDocuments(),
+      buildDashboardSnapshot(req.user, req.access),
       Employee.findOne({}, "updatedAt").sort({ updatedAt: -1 }).lean(),
       Checklist.findOne({}, "updatedAt").sort({ updatedAt: -1 }).lean(),
       ChecklistTask.findOne({}, "updatedAt").sort({ updatedAt: -1 }).lean(),
       Department.findOne({}, "updatedAt").sort({ updatedAt: -1 }).lean(),
     ]);
+    const totalChecklistTasks = await countScopedChecklistTasks(req.access, snapshot.employees);
 
     const total = snapshot.employees.length;
     const active = snapshot.employees.filter((employee) => employee.isActive).length;
@@ -826,7 +1084,7 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getEmployeeMarkDrilldown = async (req, res) => {
   try {
-    const snapshot = await buildDashboardSnapshot(req.user);
+    const snapshot = await buildDashboardSnapshot(req.user, req.access);
     const selectedDepartmentId = normalizeId(req.query?.departmentId);
     const selectedDepartmentDoc = snapshot.departmentDocs.find(
       (department) => normalizeId(department?._id) === selectedDepartmentId
@@ -855,7 +1113,7 @@ exports.getEmployeeMarkDrilldown = async (req, res) => {
         .filter((employee) =>
           !selectedSubDepartment || employee.subDepartmentIds.includes(selectedSubDepartment._id)
         )
-        .sort(sortByLabel);
+        .sort(sortByOverallMarkDescending);
 
       const selectedEmployeeId = normalizeId(req.query?.employeeId);
       selectedEmployee =
@@ -883,7 +1141,7 @@ exports.getEmployeeMarkDrilldown = async (req, res) => {
 
 exports.getCompanySiteEmployeeMarkDrilldown = async (req, res) => {
   try {
-    const snapshot = await buildDashboardSnapshot(req.user);
+    const snapshot = await buildDashboardSnapshot(req.user, req.access);
     const selectedCompanyId = normalizeText(req.query?.companyId);
     const useWorkflowHierarchy = normalizeText(req.query?.hierarchySource) === "workflow";
     const selectedCompany =
@@ -991,7 +1249,7 @@ exports.getCompanySiteEmployeeMarkDrilldown = async (req, res) => {
               !selectedSubDepartment ||
               employee.subDepartmentIds.includes(selectedSubDepartment._id)
             )
-            .sort(sortByLabel);
+            .sort(sortByOverallMarkDescending);
 
           const selectedEmployeeId = normalizeId(req.query?.employeeId);
           selectedEmployee =
@@ -1014,6 +1272,7 @@ exports.getCompanySiteEmployeeMarkDrilldown = async (req, res) => {
         employees: snapshot.employees.map((employee) => ({
           _id: employee._id,
           name: employee.employeeName || employee.employeeCode || "",
+          photo: employee.photo || null,
           employeeCode: employee.employeeCode || "",
           departmentDisplay: employee.departmentDisplay || "",
           subDepartmentDisplay: employee.subDepartmentDisplay || "",
@@ -1041,5 +1300,359 @@ exports.getCompanySiteEmployeeMarkDrilldown = async (req, res) => {
   } catch (err) {
     console.error("GET COMPANY SITE EMPLOYEE MARK DRILLDOWN ERROR:", err);
     return res.status(500).json({ message: "Failed to load company site employee mark drilldown" });
+  }
+};
+
+exports.getDashboardHierarchicalMarkSummary = async (req, res) => {
+  try {
+    const snapshot = await buildDashboardSnapshot(req.user, req.access);
+    const selectedFilters = {
+      company: normalizeText(req.query?.company),
+      site: normalizeId(req.query?.site),
+      department: normalizeId(req.query?.department),
+      subDepartment: normalizeId(req.query?.subDepartment),
+      employee: normalizeId(req.query?.employee),
+      fromDate: normalizeText(req.query?.fromDate),
+      toDate: normalizeText(req.query?.toDate),
+      checklistType: normalizeText(req.query?.checklistType).toLowerCase(),
+    };
+
+    const fromDate = parseDateBoundary(selectedFilters.fromDate, "start");
+    const toDate = parseDateBoundary(selectedFilters.toDate, "end");
+
+    if (selectedFilters.fromDate && !fromDate) {
+      return res.status(400).json({ message: "Invalid from date filter" });
+    }
+
+    if (selectedFilters.toDate && !toDate) {
+      return res.status(400).json({ message: "Invalid to date filter" });
+    }
+
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).json({ message: "From date cannot be greater than to date" });
+    }
+
+    const filteredEmployees = buildSummaryFilterEmployees({
+      employees: snapshot.employees,
+      siteDocs: snapshot.siteDocs,
+      company: selectedFilters.company,
+      site: selectedFilters.site,
+      department: selectedFilters.department,
+      subDepartment: selectedFilters.subDepartment,
+      employee: selectedFilters.employee,
+    });
+    const employeeById = new Map(filteredEmployees.map((employee) => [employee._id, employee]));
+    const scopedEmployeeIds = filteredEmployees.map((employee) => employee._id);
+
+    const companyOptions = snapshot.companies.map((company) =>
+      buildSelectOption(company._id, company.name || company._id)
+    );
+    const siteOptions = buildSiteChoices(
+      snapshot.siteDocs,
+      buildSummaryFilterEmployees({
+        employees: snapshot.employees,
+        siteDocs: snapshot.siteDocs,
+        company: selectedFilters.company,
+      }),
+      selectedFilters.company
+    ).map((site) => buildSelectOption(site._id, [site.companyName, site.name].filter(Boolean).join(" - ")));
+    const departmentOptions = buildDepartmentChoices(
+      snapshot.departmentDocs,
+      buildSummaryFilterEmployees({
+        employees: snapshot.employees,
+        siteDocs: snapshot.siteDocs,
+        company: selectedFilters.company,
+        site: selectedFilters.site,
+      })
+    ).map((department) => buildSelectOption(department._id, department.name || department._id));
+    const scopedSubDepartmentOptions =
+      selectedFilters.department &&
+      snapshot.departmentDocs.find(
+        (departmentDoc) => normalizeId(departmentDoc?._id) === selectedFilters.department
+      )
+        ? buildSubDepartmentChoices(
+            snapshot.departmentDocs.find(
+              (departmentDoc) => normalizeId(departmentDoc?._id) === selectedFilters.department
+            ),
+            buildSummaryFilterEmployees({
+              employees: snapshot.employees,
+              siteDocs: snapshot.siteDocs,
+              company: selectedFilters.company,
+              site: selectedFilters.site,
+              department: selectedFilters.department,
+            })
+          )
+        : buildScopedSubDepartmentChoices(
+            snapshot.departmentDocs,
+            buildSummaryFilterEmployees({
+              employees: snapshot.employees,
+              siteDocs: snapshot.siteDocs,
+              company: selectedFilters.company,
+              site: selectedFilters.site,
+              department: selectedFilters.department,
+            })
+          );
+    const subDepartmentOptions = scopedSubDepartmentOptions.map((subDepartment) =>
+      buildSelectOption(subDepartment._id, subDepartment.label || subDepartment.name || subDepartment._id)
+    );
+    const employeeOptions = filteredEmployees.map((employee) =>
+      buildSelectOption(
+        employee._id,
+        employee.employeeCode
+          ? `${employee.employeeCode} - ${employee.employeeName || "Employee"}`
+          : employee.employeeName || employee._id
+      )
+    );
+
+    const checklistTypeRows = scopedEmployeeIds.length
+      ? await ChecklistTask.aggregate([
+          {
+            $match: {
+              assignedEmployee: {
+                $in: scopedEmployeeIds
+                  .filter((employeeId) => Types.ObjectId.isValid(employeeId))
+                  .map((employeeId) => new Types.ObjectId(employeeId)),
+              },
+              finalMark: { $ne: null },
+            },
+          },
+          { $group: { _id: "$scheduleType" } },
+          { $sort: { _id: 1 } },
+        ])
+      : [];
+    const checklistTypes = checklistTypeRows
+      .map((row) => ({
+        value: normalizeText(row?._id).toLowerCase(),
+        label: formatScheduleTypeLabel(row?._id),
+      }))
+      .filter((row) => row.value && row.label);
+
+    if (!scopedEmployeeIds.length) {
+      return res.json({
+        filters: {
+          selected: selectedFilters,
+          options: {
+            companies: companyOptions,
+            sites: siteOptions,
+            departments: departmentOptions,
+            subDepartments: subDepartmentOptions,
+            employees: employeeOptions,
+          },
+          checklistTypes,
+        },
+        summary: buildHierarchicalSummaryCards({
+          totalChecklistMark: 0,
+          selectedCompany:
+            snapshot.companies.find((company) => company._id === selectedFilters.company) || null,
+          selectedSite:
+            snapshot.sites.find((site) => site._id === selectedFilters.site) || null,
+          selectedDepartment:
+            snapshot.departments.find(
+              (department) => department._id === selectedFilters.department
+            ) || null,
+          selectedSubDepartment:
+            snapshot.subDepartments.find(
+              (subDepartment) => subDepartment._id === selectedFilters.subDepartment
+            ) || null,
+          selectedEmployee:
+            snapshot.employees.find((employee) => employee._id === selectedFilters.employee) || null,
+          checklistTypeLabel:
+            checklistTypes.find((item) => item.value === selectedFilters.checklistType)?.label || "",
+          employeeCount: 0,
+        }),
+        rows: [],
+      });
+    }
+
+    const taskQuery = {
+      assignedEmployee: {
+        $in: scopedEmployeeIds
+          .filter((employeeId) => Types.ObjectId.isValid(employeeId))
+          .map((employeeId) => new Types.ObjectId(employeeId)),
+      },
+      finalMark: { $ne: null },
+    };
+
+    if (fromDate || toDate) {
+      taskQuery.occurrenceDate = {};
+      if (fromDate) taskQuery.occurrenceDate.$gte = fromDate;
+      if (toDate) taskQuery.occurrenceDate.$lte = toDate;
+    }
+
+    if (selectedFilters.checklistType) {
+      taskQuery.scheduleType = selectedFilters.checklistType;
+    }
+
+    const taskRows = await ChecklistTask.find(
+      taskQuery,
+      "_id checklistName scheduleType occurrenceDate finalMark assignedEmployee checklist"
+    )
+      .populate({
+        path: "checklist",
+        select: "employeeAssignedSite",
+        populate: {
+          path: "employeeAssignedSite",
+          select: "name companyName",
+        },
+      })
+      .lean();
+
+    const departmentById = new Map(
+      (snapshot.departmentDocs || []).map((departmentDoc) => [normalizeId(departmentDoc?._id), departmentDoc])
+    );
+    const subDepartmentById = new Map(
+      (snapshot.subDepartments || []).map((subDepartment) => [subDepartment._id, subDepartment])
+    );
+    const siteById = new Map((snapshot.siteDocs || []).map((siteDoc) => [normalizeId(siteDoc?._id), siteDoc]));
+    const companyMarkMap = new Map();
+    const siteMarkMap = new Map();
+    const departmentMarkMap = new Map();
+    const subDepartmentMarkMap = new Map();
+    const employeeMarkMap = new Map();
+
+    const rows = taskRows
+      .map((taskRow) => {
+        const employeeId = normalizeId(taskRow?.assignedEmployee);
+        const employee = employeeById.get(employeeId);
+        if (!employee) return null;
+
+        const taskSiteId =
+          normalizeId(taskRow?.checklist?.employeeAssignedSite?._id) || employee.siteIds?.[0] || "";
+        const taskSite =
+          taskRow?.checklist?.employeeAssignedSite || siteById.get(taskSiteId) || null;
+        const companyName = normalizeText(taskSite?.companyName);
+        const siteName = normalizeText(taskSite?.name);
+
+        if (selectedFilters.company && companyName !== selectedFilters.company) {
+          return null;
+        }
+
+        if (selectedFilters.site && taskSiteId !== selectedFilters.site) {
+          return null;
+        }
+
+        const departmentId =
+          (selectedFilters.department &&
+          (employee.departmentIds || []).includes(selectedFilters.department)
+            ? selectedFilters.department
+            : employee.departmentIds?.[0]) || "";
+        const departmentDoc = departmentById.get(departmentId) || null;
+        const departmentName =
+          departmentDoc?.name || employee.departmentDisplay || "";
+
+        if (selectedFilters.department && departmentId !== selectedFilters.department) {
+          return null;
+        }
+
+        const subDepartmentId =
+          (selectedFilters.subDepartment &&
+          (employee.subDepartmentIds || []).includes(selectedFilters.subDepartment)
+            ? selectedFilters.subDepartment
+            : employee.subDepartmentIds?.[0]) || "";
+        const subDepartment = subDepartmentById.get(subDepartmentId) || null;
+        const subDepartmentName =
+          subDepartment?.label || employee.subDepartmentDisplay || "";
+
+        if (selectedFilters.subDepartment && subDepartmentId !== selectedFilters.subDepartment) {
+          return null;
+        }
+
+        const checklistTaskMark = roundMarkValue(taskRow?.finalMark) || 0;
+
+        return {
+          _id: normalizeId(taskRow?._id),
+          companyName,
+          companyKey: companyName,
+          siteId: taskSiteId,
+          siteName,
+          departmentId,
+          departmentName,
+          subDepartmentId,
+          subDepartmentName,
+          employeeId,
+          employeeName: employee.employeeName || employee.employeeCode || "",
+          checklistTaskName: taskRow?.checklistName || "",
+          checklistType: formatScheduleTypeLabel(taskRow?.scheduleType),
+          occurrenceDate: taskRow?.occurrenceDate || null,
+          checklistTaskMark,
+        };
+      })
+      .filter(Boolean);
+
+    rows.forEach((row) => {
+      companyMarkMap.set(
+        row.companyKey,
+        roundMarkValue((companyMarkMap.get(row.companyKey) || 0) + row.checklistTaskMark) || 0
+      );
+      siteMarkMap.set(
+        row.siteId,
+        roundMarkValue((siteMarkMap.get(row.siteId) || 0) + row.checklistTaskMark) || 0
+      );
+      departmentMarkMap.set(
+        row.departmentId,
+        roundMarkValue((departmentMarkMap.get(row.departmentId) || 0) + row.checklistTaskMark) || 0
+      );
+      subDepartmentMarkMap.set(
+        row.subDepartmentId,
+        roundMarkValue((subDepartmentMarkMap.get(row.subDepartmentId) || 0) + row.checklistTaskMark) || 0
+      );
+      employeeMarkMap.set(
+        row.employeeId,
+        roundMarkValue((employeeMarkMap.get(row.employeeId) || 0) + row.checklistTaskMark) || 0
+      );
+    });
+
+    const enrichedRows = rows.map((row) => ({
+      ...row,
+      companyMark: companyMarkMap.get(row.companyKey) || 0,
+      siteMark: siteMarkMap.get(row.siteId) || 0,
+      departmentMark: row.departmentId ? departmentMarkMap.get(row.departmentId) || 0 : null,
+      subDepartmentMark: row.subDepartmentId
+        ? subDepartmentMarkMap.get(row.subDepartmentId) || 0
+        : null,
+      employeeMark: employeeMarkMap.get(row.employeeId) || 0,
+    }));
+
+    const totalChecklistMark = roundMarkValue(
+      enrichedRows.reduce((sum, row) => sum + Number(row.checklistTaskMark || 0), 0)
+    ) || 0;
+
+    return res.json({
+      filters: {
+        selected: selectedFilters,
+        options: {
+          companies: companyOptions,
+          sites: siteOptions,
+          departments: departmentOptions,
+          subDepartments: subDepartmentOptions,
+          employees: employeeOptions,
+        },
+        checklistTypes,
+      },
+      summary: buildHierarchicalSummaryCards({
+        totalChecklistMark,
+        selectedCompany:
+          snapshot.companies.find((company) => company._id === selectedFilters.company) || null,
+        selectedSite:
+          snapshot.sites.find((site) => site._id === selectedFilters.site) || null,
+        selectedDepartment:
+          snapshot.departments.find(
+            (department) => department._id === selectedFilters.department
+          ) || null,
+        selectedSubDepartment:
+          snapshot.subDepartments.find(
+            (subDepartment) => subDepartment._id === selectedFilters.subDepartment
+          ) || null,
+        selectedEmployee:
+          snapshot.employees.find((employee) => employee._id === selectedFilters.employee) || null,
+        checklistTypeLabel:
+          checklistTypes.find((item) => item.value === selectedFilters.checklistType)?.label || "",
+        employeeCount: new Set(enrichedRows.map((row) => row.employeeId)).size,
+      }),
+      rows: enrichedRows,
+    });
+  } catch (err) {
+    console.error("GET DASHBOARD HIERARCHICAL MARK SUMMARY ERROR:", err);
+    return res.status(500).json({ message: "Failed to load dashboard hierarchical mark summary" });
   }
 };

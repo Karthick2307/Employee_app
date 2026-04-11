@@ -11,6 +11,7 @@ import {
   getChatRoutePath,
 } from "../utils/chatDisplay";
 import { clearPostLoginWelcomeSession } from "../utils/postLoginWelcome";
+import { usePermissions } from "../context/PermissionContext";
 
 const emptyReminderState = {
   counts: {
@@ -76,9 +77,11 @@ function BellIcon() {
 }
 
 export default function Navbar() {
+  const { can, canAny, getHomePath, role: resolvedRole } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const notificationMenuRef = useRef(null);
+  const desktopNotificationMenuRef = useRef(null);
+  const mobileNotificationMenuRef = useRef(null);
   const shownBrowserNotificationKeysRef = useRef(new Set());
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const role = String(user?.role || "").trim().toLowerCase();
@@ -90,13 +93,10 @@ export default function Navbar() {
     (role === "user" || Boolean(user?.checklistMasterAccess));
   const userName = user?.name || user?.employeeName || "Signed in";
   const userDisplayId = user?.email || user?.employeeCode || "";
-  const employeeMenuPath = user?.id ? `/view/${user.id}` : "/employees";
-  const homePath = hasRestrictedChecklistAccess ? "/checklists" : "/dashboard-1";
+  const homePath = getHomePath();
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dashboardOpen, setDashboardOpen] = useState(false);
-  const [mastersOpen, setMastersOpen] = useState(false);
-  const [reportsOpen, setReportsOpen] = useState(false);
+  const [activeNavMenu, setActiveNavMenu] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [reminderNotificationData, setReminderNotificationData] =
     useState(emptyReminderState);
@@ -119,54 +119,147 @@ export default function Navbar() {
       ? Number(requestNotificationData.counts.unread || 0)
       : Number(reminderNotificationData.counts.total || 0) +
         Number(chatNotificationData.counts.mentions || 0);
+  const shouldShowNotifications = isEmployee || isAdmin || hasRestrictedChecklistAccess;
 
-  const dashboardLinks = useMemo(() => {
-    if (hasRestrictedChecklistAccess) {
-      return [];
-    }
+  const workspaceLinks = useMemo(
+    () =>
+      [
+        can("employee_master", "view")
+          ? { to: "/employees", label: "Employee Master" }
+          : null,
+        !can("employee_master", "view") && can("own_profile", "view")
+          ? { to: "/me", label: "My Profile" }
+          : null,
+        can("checklist_master", "view")
+          ? { to: "/checklists", label: "Checklist Master" }
+          : !can("checklist_master", "view") && can("assigned_checklists", "view")
+          ? { to: "/checklists", label: "Assigned Checklist" }
+          : null,
+        can("own_task", "view") ? { to: "/own-tasks", label: "Own Task" } : null,
+        can("shared_task", "view") ? { to: "/shared-tasks", label: "Shared Task" } : null,
+        can("approval_inbox", "view")
+          ? { to: "/checklists/approvals", label: "Approval Inbox" }
+          : null,
+      ].filter(Boolean),
+    [can]
+  );
 
-    return [
-      { to: "/dashboard-1", label: "Overview 1" },
-      { to: "/dashboard-2", label: "Overview 2" },
-    ];
-  }, [hasRestrictedChecklistAccess]);
+  const masterLinks = useMemo(
+    () =>
+      [
+        can("company_master", "view")
+          ? { to: "/masters/companies", label: "Companies" }
+          : null,
+        can("department_master", "view")
+          ? { to: "/masters/departments", label: "Departments" }
+          : null,
+        can("designation_master", "view")
+          ? { to: "/masters/designations", label: "Designations" }
+          : null,
+        can("site_master", "view") ? { to: "/masters/sites", label: "Sites" } : null,
+        can("checklist_transfer", "view")
+          ? { to: "/masters/checklist-transfer", label: "Checklist Transfer" }
+          : null,
+      ].filter(Boolean),
+    [can]
+  );
 
-  const navLinks = useMemo(() => {
-    if (hasRestrictedChecklistAccess) {
-      return [
-        { to: "/checklists", label: "Checklist Masters" },
-        { to: "/masters/checklist-transfer", label: "Checklist Transfer" },
-      ];
-    }
+  const communicationLinks = useMemo(
+    () =>
+      [
+        can("site_chat", "view") ? { to: "/chat", label: "Site Chat" } : null,
+        can("department_chat", "view")
+          ? { to: "/department-chat", label: "Department Chat" }
+          : null,
+        can("notifications", "view")
+          ? { to: "/notifications", label: "Notifications" }
+          : null,
+      ].filter(Boolean),
+    [can]
+  );
 
-    const baseLinks = [
-      {
-        to: isAdmin ? "/employees" : employeeMenuPath,
-        label: isAdmin ? "Employees" : "My Profile",
-      },
-      {
-        to: "/checklists",
-        label: isAdmin ? "Checklist Masters" : "My Checklist Tasks",
-      },
-      { to: "/chat", label: "Site Chat" },
-      { to: "/department-chat", label: "Department Chat" },
-    ];
+  const attendanceLinks = useMemo(
+    () =>
+      [
+        can("employee_attendance", "view")
+          ? { to: "/attendance", label: "Attendance Dashboard" }
+          : null,
+        user?.principalType !== "employee" &&
+        canAny([
+          { moduleKey: "employee_attendance", actionKey: "add" },
+          { moduleKey: "employee_attendance", actionKey: "edit" },
+        ])
+          ? { to: "/attendance/daily", label: "Daily Attendance Entry" }
+          : null,
+        user?.principalType === "employee" && can("employee_attendance", "view")
+          ? { to: "/attendance/self", label: "Self Attendance" }
+          : null,
+        canAny([
+          { moduleKey: "attendance_reports", actionKey: "view" },
+          { moduleKey: "attendance_reports", actionKey: "report_view" },
+        ])
+          ? { to: "/attendance/reports", label: "Attendance Reports" }
+          : null,
+        can("attendance_regularization", "view")
+          ? { to: "/attendance/regularization", label: "Regularization" }
+          : null,
+        can("attendance_settings", "view")
+          ? { to: "/attendance/settings", label: "Attendance Settings" }
+          : null,
+      ].filter(Boolean),
+    [can, canAny, user?.principalType]
+  );
 
-    if (!isAdmin) {
-      baseLinks.splice(4, 0, {
-        to: "/own-tasks",
-        label: "Own Tasks",
-      });
-    }
+  const workflowLinks = useMemo(
+    () =>
+      [
+        can("workflow_mapping", "view")
+          ? { to: "/workflow-mapping", label: "Workflow Mapping" }
+          : null,
+        can("approval_hierarchy", "view")
+          ? { to: "/approval-hierarchy", label: "Approval Hierarchy" }
+          : null,
+      ].filter(Boolean),
+    [can]
+  );
 
-    return baseLinks;
-  }, [employeeMenuPath, hasRestrictedChecklistAccess, isAdmin]);
+  const reportLinks = useMemo(
+    () =>
+      [
+        can("dashboard_analytics", "view")
+          ? { to: "/dashboard-1", label: "Overview 1" }
+          : null,
+        can("dashboard_analytics", "view")
+          ? { to: "/dashboard-2", label: "Overview 2" }
+          : null,
+        can("dashboard_analytics", "view")
+          ? { to: "/dashboard-summary", label: "Summary" }
+          : null,
+        can("reports", "report_view")
+          ? { to: "/reports/checklists", label: "Checklist Report" }
+          : null,
+      ].filter(Boolean),
+    [can]
+  );
+
+  const adminLinks = useMemo(
+    () =>
+      [
+        can("checklist_master", "approve") || can("checklist_master", "reject")
+          ? { to: "/checklists/admin-approvals", label: "Admin Approvals" }
+          : null,
+        can("user_management", "view") ? { to: "/users", label: "Users" } : null,
+        can("role_permission_setup", "view")
+          ? { to: "/permissions/roles", label: "Role Permission Setup" }
+          : null,
+        can("settings_masters", "view") ? { to: "/settings", label: "Settings" } : null,
+      ].filter(Boolean),
+    [can]
+  );
 
   useEffect(() => {
     setMenuOpen(false);
-    setDashboardOpen(false);
-    setMastersOpen(false);
-    setReportsOpen(false);
+    setActiveNavMenu("");
     setNotificationsOpen(false);
   }, [location.pathname]);
 
@@ -382,10 +475,16 @@ export default function Navbar() {
     if (!notificationsOpen) return undefined;
 
     const handleOutsideClick = (event) => {
-      if (
-        notificationMenuRef.current &&
-        !notificationMenuRef.current.contains(event.target)
-      ) {
+      const clickedInsideDesktopMenu = Boolean(
+        desktopNotificationMenuRef.current &&
+          desktopNotificationMenuRef.current.contains(event.target)
+      );
+      const clickedInsideMobileMenu = Boolean(
+        mobileNotificationMenuRef.current &&
+          mobileNotificationMenuRef.current.contains(event.target)
+      );
+
+      if (!clickedInsideDesktopMenu && !clickedInsideMobileMenu) {
         setNotificationsOpen(false);
       }
     };
@@ -395,6 +494,75 @@ export default function Navbar() {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [notificationsOpen]);
+
+  const toggleNavMenu = (menuKey) => {
+    setActiveNavMenu((currentValue) => (currentValue === menuKey ? "" : menuKey));
+  };
+
+  const isNavMenuOpen = (menuKey) => activeNavMenu === menuKey;
+
+  const matchesPath = (prefixes = []) =>
+    prefixes.some(
+      (prefix) =>
+        location.pathname === prefix || location.pathname.startsWith(`${prefix}/`)
+    );
+
+  const isWorkspaceMenuActive =
+    (matchesPath(["/employees", "/add", "/edit", "/view", "/me", "/checklists", "/own-tasks", "/shared-tasks"]) &&
+      !location.pathname.startsWith("/checklists/admin-approvals")) ||
+    location.pathname === "/checklists/approvals";
+  const isCommunicationMenuActive = matchesPath([
+    "/chat",
+    "/department-chat",
+    "/notifications",
+  ]);
+  const isWorkflowMenuActive = matchesPath([
+    "/workflow-mapping",
+    "/approval-hierarchy",
+  ]);
+  const isAttendanceMenuActive = matchesPath(["/attendance"]);
+  const isReportsMenuActive = matchesPath([
+    "/reports",
+    "/dashboard-1",
+    "/dashboard-2",
+    "/dashboard-summary",
+  ]);
+  const isAdminMenuActive = matchesPath([
+    "/users",
+    "/permissions",
+    "/settings",
+    "/checklists/admin-approvals",
+  ]);
+  const isMastersMenuActive = matchesPath(["/masters"]);
+
+  const renderNavDropdown = (menuKey, label, links, isActive = false) => {
+    if (!links.length) return null;
+
+    return (
+      <li className="nav-item dropdown" key={menuKey}>
+        <button
+          type="button"
+          className={`nav-link dropdown-toggle border-0 bg-transparent ${
+            isActive ? "active" : ""
+          }`}
+          onClick={() => toggleNavMenu(menuKey)}
+          aria-expanded={isNavMenuOpen(menuKey)}
+        >
+          {label}
+        </button>
+
+        <ul className={`dropdown-menu ${isNavMenuOpen(menuKey) ? "show" : ""}`}>
+          {links.map((link) => (
+            <li key={link.to}>
+              <NavLink className={buildDropdownItemClass} to={link.to}>
+                {link.label}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </li>
+    );
+  };
 
   const logout = () => {
     clearPostLoginWelcomeSession();
@@ -653,250 +821,151 @@ export default function Navbar() {
     );
   };
 
+  const renderNotificationMenu = () => (
+    <div className="notification-menu">
+      <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
+        <div className="fw-semibold text-dark">Notifications</div>
+        {isEmployee ? (
+          <div className="d-flex gap-2 notification-menu__quick-links">
+            <button
+              type="button"
+              className="btn btn-link btn-sm text-decoration-none p-0"
+              onClick={() => navigate("/chat")}
+            >
+              Open Site Chat
+            </button>
+            <button
+              type="button"
+              className="btn btn-link btn-sm text-decoration-none p-0"
+              onClick={() => navigate("/department-chat")}
+            >
+              Open Department Chat
+            </button>
+            <button
+              type="button"
+              className="btn btn-link btn-sm text-decoration-none p-0"
+              onClick={() => navigate("/own-tasks")}
+            >
+              Open Own Tasks
+            </button>
+          </div>
+        ) : null}
+        {isAdmin || hasRestrictedChecklistAccess ? (
+          <button
+            type="button"
+            className="btn btn-link btn-sm text-decoration-none p-0"
+            onClick={markAllNotificationsRead}
+            disabled={!totalNotificationCount}
+          >
+            Mark All Read
+          </button>
+        ) : null}
+      </div>
+
+      {notificationLoading ? (
+        <div className="small text-muted">Loading notifications...</div>
+      ) : totalNotificationCount ? (
+        <div className="d-flex flex-column gap-3">
+          {isAdmin ? (
+            <>
+              {renderChecklistRequestNotifications()}
+              {renderFeedbackNotifications()}
+            </>
+          ) : hasRestrictedChecklistAccess ? (
+            renderChecklistRequestNotifications()
+          ) : (
+            <>
+              {renderChatMentions()}
+              {renderReminderGroup("Due Now", reminderNotificationData.due)}
+              {renderReminderGroup("Upcoming", reminderNotificationData.upcoming)}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="small text-muted">
+          {isAdmin
+            ? "No new checklist requests or employee feedback notifications right now."
+            : hasRestrictedChecklistAccess
+            ? "No new checklist approval updates right now."
+            : "No chat mentions or reminder alerts right now."}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderNotificationShell = (menuRef, shellClassName = "") => (
+    <div className={`position-relative ${shellClassName}`.trim()} ref={menuRef}>
+      <button
+        type="button"
+        className="notification-toggle"
+        onClick={() => setNotificationsOpen((prev) => !prev)}
+        aria-label="Open notifications"
+        aria-expanded={notificationsOpen}
+      >
+        <BellIcon />
+        {totalNotificationCount ? (
+          <span className="notification-toggle__badge">{totalNotificationCount}</span>
+        ) : null}
+      </button>
+
+      {notificationsOpen ? renderNotificationMenu() : null}
+    </div>
+  );
+
   return (
     <nav className="navbar navbar-expand-lg navbar-dark px-3 px-lg-4 app-navbar">
-      <NavLink className="navbar-brand fw-semibold" to={homePath}>
-        Check List Workspace
-      </NavLink>
+      <div className="app-navbar__toprow">
+        <NavLink className="navbar-brand fw-semibold" to={homePath}>
+          Check List Workspace
+        </NavLink>
 
-      <button
-        className="navbar-toggler"
-        type="button"
-        onClick={() => setMenuOpen((prev) => !prev)}
-        aria-label="Toggle navigation"
-      >
-        <span className="navbar-toggler-icon" />
-      </button>
+        <div className="app-navbar__top-controls">
+          {shouldShowNotifications
+            ? renderNotificationShell(
+                mobileNotificationMenuRef,
+                "app-navbar__notification-shell app-navbar__notification-shell--mobile"
+              )
+            : null}
+
+          <button
+            className="navbar-toggler app-navbar__mobile-toggle"
+            type="button"
+            onClick={() => setMenuOpen((prev) => !prev)}
+            aria-label="Toggle navigation"
+          >
+            <span className="navbar-toggler-icon" />
+          </button>
+        </div>
+      </div>
 
       <div className={`collapse navbar-collapse ${menuOpen ? "show" : ""}`}>
         <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-          {dashboardLinks.length ? (
-            <li className="nav-item dropdown">
-              <button
-                type="button"
-                className={`nav-link dropdown-toggle border-0 bg-transparent ${
-                  location.pathname.startsWith("/dashboard-1") ||
-                  location.pathname.startsWith("/dashboard-2") ||
-                  location.pathname === "/dashboard"
-                    ? "active"
-                    : ""
-                }`}
-                onClick={() => {
-                  setDashboardOpen((prev) => !prev);
-                  setReportsOpen(false);
-                  setMastersOpen(false);
-                }}
-                aria-expanded={dashboardOpen}
-              >
-                Dashboard
-              </button>
-
-              <ul className={`dropdown-menu ${dashboardOpen ? "show" : ""}`}>
-                {dashboardLinks.map((link) => (
-                  <li key={link.to}>
-                    <NavLink className={buildDropdownItemClass} to={link.to}>
-                      {link.label}
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ) : null}
-
-          {navLinks.map((link) => (
-            <li className="nav-item" key={link.to}>
-              <NavLink className={buildNavLinkClass} to={link.to}>
-                {link.label}
-              </NavLink>
-            </li>
-          ))}
-
-          {isEmployee ? (
-            <li className="nav-item">
-              <NavLink className={buildNavLinkClass} to="/checklists/approvals">
-                Approval Inbox
-              </NavLink>
-            </li>
-          ) : null}
-
-          {isAdmin ? (
-            <>
-              <li className="nav-item dropdown">
-                <button
-                  type="button"
-                  className={`nav-link dropdown-toggle border-0 bg-transparent ${
-                    location.pathname.startsWith("/reports") ? "active" : ""
-                  }`}
-                  onClick={() => {
-                    setReportsOpen((prev) => !prev);
-                    setDashboardOpen(false);
-                    setMastersOpen(false);
-                  }}
-                  aria-expanded={reportsOpen}
-                >
-                  Reports
-                </button>
-                <ul className={`dropdown-menu ${reportsOpen ? "show" : ""}`}>
-                  <li>
-                    <NavLink className={buildDropdownItemClass} to="/reports/checklists">
-                      Checklist Report
-                    </NavLink>
-                  </li>
-                </ul>
-              </li>
-
-              <li className="nav-item">
-                <NavLink className={buildNavLinkClass} to="/checklists/admin-approvals">
-                  Admin Approvals
-                </NavLink>
-              </li>
-
-              <li className="nav-item">
-                <NavLink className={buildNavLinkClass} to="/users">
-                  Users
-                </NavLink>
-              </li>
-
-              <li className="nav-item dropdown">
-                <button
-                  type="button"
-                  className={`nav-link dropdown-toggle border-0 bg-transparent ${
-                    location.pathname.startsWith("/masters") ? "active" : ""
-                  }`}
-                  onClick={() => {
-                    setMastersOpen((prev) => !prev);
-                    setDashboardOpen(false);
-                    setReportsOpen(false);
-                  }}
-                  aria-expanded={mastersOpen}
-                >
-                  Masters
-                </button>
-
-                <ul className={`dropdown-menu ${mastersOpen ? "show" : ""}`}>
-                  <li>
-                    <NavLink className={buildDropdownItemClass} to="/masters/companies">
-                      Companies
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink className={buildDropdownItemClass} to="/masters/departments">
-                      Departments
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink className={buildDropdownItemClass} to="/masters/designations">
-                      Designations
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink className={buildDropdownItemClass} to="/masters/sites">
-                      Sites
-                    </NavLink>
-                  </li>
-                  <li>
-                    <NavLink
-                      className={buildDropdownItemClass}
-                      to="/masters/checklist-transfer"
-                    >
-                      Checklist Transfer
-                    </NavLink>
-                  </li>
-                </ul>
-              </li>
-            </>
-          ) : null}
+          {renderNavDropdown("workspace", "Workspace", workspaceLinks, isWorkspaceMenuActive)}
+          {renderNavDropdown("masters", "Masters", masterLinks, isMastersMenuActive)}
+          {renderNavDropdown("attendance", "Attendance", attendanceLinks, isAttendanceMenuActive)}
+          {renderNavDropdown(
+            "workflow",
+            "Workflow",
+            workflowLinks,
+            isWorkflowMenuActive
+          )}
+          {renderNavDropdown(
+            "communication",
+            "Communication",
+            communicationLinks,
+            isCommunicationMenuActive
+          )}
+          {renderNavDropdown("reports", "Reports", reportLinks, isReportsMenuActive)}
+          {renderNavDropdown("admin", "Admin", adminLinks, isAdminMenuActive)}
         </ul>
 
         <div className="d-flex flex-wrap align-items-center justify-content-end gap-3 app-navbar__actions">
-          {isEmployee || isAdmin || hasRestrictedChecklistAccess ? (
-            <div className="position-relative" ref={notificationMenuRef}>
-              <button
-                type="button"
-                className="notification-toggle"
-                onClick={() => setNotificationsOpen((prev) => !prev)}
-                aria-label="Open notifications"
-                aria-expanded={notificationsOpen}
-              >
-                <BellIcon />
-                {totalNotificationCount ? (
-                  <span className="notification-toggle__badge">{totalNotificationCount}</span>
-                ) : null}
-              </button>
-
-              {notificationsOpen ? (
-                <div className="notification-menu">
-                  <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
-                    <div className="fw-semibold text-dark">Notifications</div>
-                    {isEmployee ? (
-                      <div className="d-flex gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-link btn-sm text-decoration-none p-0"
-                          onClick={() => navigate("/chat")}
-                        >
-                          Open Site Chat
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-link btn-sm text-decoration-none p-0"
-                          onClick={() => navigate("/department-chat")}
-                        >
-                          Open Department Chat
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-link btn-sm text-decoration-none p-0"
-                          onClick={() => navigate("/own-tasks")}
-                        >
-                          Open Own Tasks
-                        </button>
-                      </div>
-                    ) : null}
-                    {isAdmin || hasRestrictedChecklistAccess ? (
-                      <button
-                        type="button"
-                        className="btn btn-link btn-sm text-decoration-none p-0"
-                        onClick={markAllNotificationsRead}
-                        disabled={!totalNotificationCount}
-                      >
-                        Mark All Read
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {notificationLoading ? (
-                    <div className="small text-muted">Loading notifications...</div>
-                  ) : totalNotificationCount ? (
-                    <div className="d-flex flex-column gap-3">
-                      {isAdmin ? (
-                        <>
-                          {renderChecklistRequestNotifications()}
-                          {renderFeedbackNotifications()}
-                        </>
-                      ) : hasRestrictedChecklistAccess ? (
-                        renderChecklistRequestNotifications()
-                      ) : (
-                        <>
-                          {renderChatMentions()}
-                          {renderReminderGroup("Due Now", reminderNotificationData.due)}
-                          {renderReminderGroup("Upcoming", reminderNotificationData.upcoming)}
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="small text-muted">
-                      {isAdmin
-                        ? "No new checklist requests or employee feedback notifications right now."
-                        : hasRestrictedChecklistAccess
-                        ? "No new checklist approval updates right now."
-                        : "No chat mentions or reminder alerts right now."}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          {shouldShowNotifications
+            ? renderNotificationShell(
+                desktopNotificationMenuRef,
+                "app-navbar__notification-shell app-navbar__notification-shell--desktop"
+              )
+            : null}
 
           <div className="text-end small app-navbar__session">
             <div className="fw-semibold">{userName}</div>
@@ -906,13 +975,7 @@ export default function Navbar() {
           </div>
 
           <span className="badge text-uppercase px-3 py-2 app-navbar__role-badge">
-            {isAdmin
-              ? "Admin"
-              : isEmployee
-              ? "Employee"
-              : role === "user" || user?.checklistMasterAccess
-              ? "Checklist User"
-              : "User"}
+            {resolvedRole?.name || (isAdmin ? "Admin" : isEmployee ? "Employee" : "User")}
           </span>
 
           <button onClick={logout} className="btn btn-danger btn-sm">

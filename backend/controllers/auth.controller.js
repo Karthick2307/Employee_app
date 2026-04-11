@@ -1,9 +1,11 @@
 const User = require("../models/User");
 const Employee = require("../models/Employee");
+const Role = require("../models/Role");
 const Site = require("../models/Site");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET, JWT_EXPIRES_IN } = require("../middleware/auth");
+const { buildSessionUserPayload, resolvePrincipalAccess } = require("../services/permissionResolver.service");
 const DEFAULT_ADMIN_EMAIL = "admin@test.com";
 
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
@@ -61,41 +63,27 @@ const ensureDefaultAdminFlag = async (account) => {
   return account;
 };
 
-const buildLoginResponse = (account, accountType = "user") => {
-  if (accountType === "employee") {
-    return {
-      id: account._id,
-      name: account.employeeName || "",
-      email: account.email || account.employeeCode || "",
-      employeeCode: account.employeeCode || "",
-      role: "employee",
-      isDefaultAdmin: false,
-      checklistMasterAccess: false,
-      siteId: "",
-      siteName: "",
-      siteCompanyName: "",
-      siteDisplayName: "",
-    };
+const buildLoginResponse = async (account, accountType = "user") => {
+  const principalType = accountType === "employee" ? "employee" : "user";
+  const access = await resolvePrincipalAccess({ principalType, principal: account });
+  const payload = buildSessionUserPayload({
+    principalType,
+    principal: account,
+    access,
+  });
+
+  if (principalType === "employee") {
+    return payload;
   }
 
-  const hasChecklistMasterAccess =
-    account.role === "user"
-      ? account.checklistMasterAccess !== false
-      : Boolean(account.checklistMasterAccess);
-  const siteSummary = buildSiteSummary(account.site);
-
   return {
-    id: account._id,
-    name: account.name || "",
-    email: account.email,
-    role: account.role,
-    isDefaultAdmin: isDefaultAdminAccount(account),
-    checklistMasterAccess: hasChecklistMasterAccess,
-    ...siteSummary,
+    ...payload,
+    ...buildSiteSummary(account.site),
   };
 };
 
 const countAdmins = () => User.countDocuments({ role: "admin" });
+const getRoleByKey = (key) => Role.findOne({ key }).lean();
 
 exports.login = async (req, res) => {
   try {
@@ -124,6 +112,7 @@ exports.login = async (req, res) => {
           {
             id: user._id,
             role: user.role,
+            principalType: "user",
             email: user.email,
             checklistMasterAccess:
               user.role === "user"
@@ -137,7 +126,7 @@ exports.login = async (req, res) => {
 
         return res.json({
           token,
-          user: buildLoginResponse(user),
+          user: await buildLoginResponse(user),
         });
       }
     }
@@ -168,6 +157,7 @@ exports.login = async (req, res) => {
       {
         id: employee._id,
         role: "employee",
+        principalType: "employee",
         email: employee.email || employee.employeeCode || "",
         employeeCode: employee.employeeCode || "",
       },
@@ -177,7 +167,7 @@ exports.login = async (req, res) => {
 
     return res.json({
       token,
-      user: buildLoginResponse(employee, "employee"),
+      user: await buildLoginResponse(employee, "employee"),
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
@@ -191,9 +181,10 @@ exports.getUsers = async (req, res) => {
   try {
     const users = await User.find(
       {},
-      "name email role checklistMasterAccess site createdAt updatedAt isDefaultAdmin"
+      "name email role roleId checklistMasterAccess site createdAt updatedAt isDefaultAdmin accessScopeStrategy accessCompanyIds accessSiteIds accessDepartmentIds accessSubDepartmentIds accessEmployeeIds"
     )
       .populate("site", "name companyName")
+      .populate("roleId", "key name dashboardType scopeStrategy homeModuleKey")
       .sort({
         createdAt: -1,
       });
@@ -211,6 +202,7 @@ exports.createUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
     const siteId = normalizeId(req.body.siteId || req.body.site);
+    const requestedRoleId = normalizeId(req.body.roleId);
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -231,7 +223,7 @@ exports.createUser = async (req, res) => {
     }
 
     const normalizedEmail = normalizeEmail(email);
-    const normalizedRole = "user";
+    const normalizedRole = req.body?.role === "admin" ? "admin" : "user";
 
     const exists = await User.findOne({ email: normalizedEmail });
     if (exists) {
@@ -248,6 +240,11 @@ exports.createUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const requestedRole =
+      (requestedRoleId && (await Role.findById(requestedRoleId).lean())) ||
+      (normalizedRole === "admin"
+        ? await getRoleByKey("main_admin")
+        : await getRoleByKey("checklist_master_user"));
 
     const user = await User.create({
       name: name.trim(),
@@ -255,14 +252,15 @@ exports.createUser = async (req, res) => {
       password: hashedPassword,
       site: site._id,
       role: normalizedRole,
-      checklistMasterAccess: true,
+      roleId: requestedRole?._id || null,
+      checklistMasterAccess: normalizedRole !== "admin",
     });
 
     await user.populate("site", "name companyName");
 
     return res.status(201).json({
-      message: "Checklist Master user created",
-      user: buildLoginResponse(user),
+      message: "User created successfully",
+      user: await buildLoginResponse(user),
     });
   } catch (err) {
     console.error("CREATE USER ERROR:", err);
@@ -276,6 +274,7 @@ exports.updateUser = async (req, res) => {
   try {
     const { name, email, password = "", role = "user" } = req.body;
     const requestedSiteId = normalizeId(req.body.siteId || req.body.site);
+    const requestedRoleId = normalizeId(req.body.roleId);
 
     if (!name || !email) {
       return res.status(400).json({
@@ -341,6 +340,15 @@ exports.updateUser = async (req, res) => {
     user.name = name.trim();
     user.email = normalizedEmail;
     user.role = normalizedRole;
+    if (requestedRoleId) {
+      user.roleId = requestedRoleId;
+    } else if (normalizedRole === "admin") {
+      const adminRole = await getRoleByKey("main_admin");
+      user.roleId = adminRole?._id || user.roleId;
+    } else if (!user.roleId) {
+      const defaultRole = await getRoleByKey("checklist_master_user");
+      user.roleId = defaultRole?._id || user.roleId;
+    }
     if (normalizedRole === "admin") {
       user.site = null;
     } else {
@@ -375,7 +383,7 @@ exports.updateUser = async (req, res) => {
 
     return res.json({
       message: "User updated",
-      user: buildLoginResponse(user),
+      user: await buildLoginResponse(user),
     });
   } catch (err) {
     console.error("UPDATE USER ERROR:", err);

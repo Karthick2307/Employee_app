@@ -71,6 +71,40 @@ const employeeSchema = new mongoose.Schema(
       ref: "Designation",
       required: true
     },
+    roleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role",
+      default: null
+    },
+    accessScopeStrategy: {
+      type: String,
+      enum: ["inherit", "all", "mapped", "own", "managed"],
+      default: "inherit"
+    },
+    accessCompanyIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Company",
+      default: []
+    },
+    accessSiteIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Site",
+      default: []
+    },
+    accessDepartmentIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Department",
+      default: []
+    },
+    accessSubDepartmentIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: []
+    },
+    accessEmployeeIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Employee",
+      default: []
+    },
 
     superiorEmployee: {
       type: mongoose.Schema.Types.ObjectId,

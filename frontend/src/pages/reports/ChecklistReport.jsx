@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/axios";
+import { usePermissions } from "../../context/PermissionContext";
 import { formatDepartmentList } from "../../utils/departmentDisplay";
 import {
   formatApprovalWorkflowLabel,
@@ -89,6 +90,8 @@ const getDownloadFileName = (headers = {}, fallbackFileName) => {
 };
 
 export default function ChecklistReport() {
+  const { can } = usePermissions();
+  const canExportReports = can("reports", "export");
   const [rows, setRows] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -246,46 +249,52 @@ export default function ChecklistReport() {
   };
 
   return (
-    <div className="container-fluid mt-4 mb-5">
-      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-        <div>
+    <div className="container-fluid mt-4 mb-5 checklist-report">
+      <div className="checklist-report__header mb-3">
+        <div className="checklist-report__intro">
           <h3 className="mb-1">Checklist Task Report</h3>
           <div className="text-muted">
             Track generated tasks, submission status, and approval movement across employees.
           </div>
         </div>
 
-        <div className="d-flex flex-wrap align-items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-outline-success"
-            onClick={() => handleExport("excel")}
-            disabled={exportingFormat === "excel"}
-          >
-            {exportingFormat === "excel" ? "Downloading Excel..." : "Download Excel"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline-danger"
-            onClick={() => handleExport("pdf")}
-            disabled={exportingFormat === "pdf"}
-          >
-            {exportingFormat === "pdf" ? "Downloading PDF..." : "Download PDF"}
-          </button>
-          <input
-            className="form-control"
-            style={{ maxWidth: "320px" }}
-            placeholder="Search task number or checklist name"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+        <div className="checklist-report__toolbar">
+          {canExportReports ? (
+            <div className="checklist-report__toolbar-actions">
+              <button
+                type="button"
+                className="btn btn-outline-success"
+                onClick={() => handleExport("excel")}
+                disabled={exportingFormat === "excel"}
+              >
+                {exportingFormat === "excel" ? "Downloading Excel..." : "Download Excel"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-danger"
+                onClick={() => handleExport("pdf")}
+                disabled={exportingFormat === "pdf"}
+              >
+                {exportingFormat === "pdf" ? "Downloading PDF..." : "Download PDF"}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="checklist-report__search">
+            <input
+              className="form-control checklist-report__search-input"
+              placeholder="Search task number or checklist name"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="card shadow-sm border-0 mb-3">
+      <div className="card shadow-sm border-0 mb-3 checklist-report__filter-card">
         <div className="card-body">
-          <div className="row g-2">
-            <div className="col-md-2">
+          <div className="row g-3 checklist-report__filter-grid">
+            <div className="col-12 col-md-6 col-xl-2">
               <label className="form-label mb-1">From Date</label>
               <input
                 type="date"
@@ -296,7 +305,7 @@ export default function ChecklistReport() {
                 }
               />
             </div>
-            <div className="col-md-2">
+            <div className="col-12 col-md-6 col-xl-2">
               <label className="form-label mb-1">To Date</label>
               <input
                 type="date"
@@ -307,7 +316,7 @@ export default function ChecklistReport() {
                 }
               />
             </div>
-            <div className="col-md-2">
+            <div className="col-12 col-md-6 col-xl-2">
               <label className="form-label mb-1">Status</label>
               <select
                 className="form-select"
@@ -326,7 +335,7 @@ export default function ChecklistReport() {
                 <option value="rejected">Rejected</option>
               </select>
             </div>
-            <div className="col-md-2">
+            <div className="col-12 col-md-6 col-xl-2">
               <label className="form-label mb-1">Schedule</label>
               <select
                 className="form-select"
@@ -343,7 +352,7 @@ export default function ChecklistReport() {
                 <option value="custom">Custom</option>
               </select>
             </div>
-            <div className="col-md-2">
+            <div className="col-12 col-md-6 col-xl-2">
               <label className="form-label mb-1">Company Name</label>
               <select
                 className="form-select"
@@ -360,7 +369,7 @@ export default function ChecklistReport() {
                 ))}
               </select>
             </div>
-            <div className="col-md-2">
+            <div className="col-12 col-md-6 col-xl-2">
               <label className="form-label mb-1">Department</label>
               <select
                 className="form-select"
@@ -382,7 +391,7 @@ export default function ChecklistReport() {
                 ))}
               </select>
             </div>
-            <div className="col-md-2">
+            <div className="col-12 col-md-6 col-xl-3">
               <label className="form-label mb-1">Sub Department</label>
               <select
                 className="form-select"
@@ -404,7 +413,7 @@ export default function ChecklistReport() {
                 ))}
               </select>
             </div>
-            <div className="col-md-3">
+            <div className="col-12 col-md-6 col-xl-5">
               <label className="form-label mb-1">Employee</label>
               <select
                 className="form-select"
@@ -421,7 +430,7 @@ export default function ChecklistReport() {
                 ))}
               </select>
             </div>
-            <div className="col-md-1">
+            <div className="col-12 col-md-4 col-xl-2">
               <label className="form-label mb-1">Time</label>
               <select
                 className="form-select"
@@ -439,7 +448,7 @@ export default function ChecklistReport() {
             </div>
           </div>
 
-          <div className="d-flex gap-2 mt-3">
+          <div className="checklist-report__filter-actions">
             <button type="button" className="btn btn-primary" onClick={applyFilters}>
               Apply Filters
             </button>

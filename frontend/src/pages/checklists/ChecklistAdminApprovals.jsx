@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
 import api from "../../api/axios";
-
-const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
+import { usePermissions } from "../../context/PermissionContext";
 
 const statusLabels = {
   pending_admin_approval: "Pending Admin Approval",
@@ -79,8 +77,9 @@ function SnapshotSection({ title, fields, changedFieldKeys }) {
 }
 
 export default function ChecklistAdminApprovals() {
-  const user = getUser();
-  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
+  const { can } = usePermissions();
+  const canApproveRequests = can("checklist_master", "approve");
+  const canRejectRequests = can("checklist_master", "reject");
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("pending_admin_approval");
@@ -198,10 +197,6 @@ export default function ChecklistAdminApprovals() {
       ),
     [selectedRequest]
   );
-
-  if (!isAdmin) {
-    return <Navigate to="/checklists" replace />;
-  }
 
   return (
     <div className="container-fluid mt-4 mb-5">
@@ -523,22 +518,26 @@ export default function ChecklistAdminApprovals() {
                 {String(selectedRequest.status || "").trim().toLowerCase() ===
                 "pending_admin_approval" ? (
                   <>
-                    <button
-                      type="button"
-                      className="btn btn-outline-danger"
-                      onClick={() => void handleDecision("reject")}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? "Saving..." : "Reject"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-success"
-                      onClick={() => void handleDecision("approve")}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? "Saving..." : "Approve"}
-                    </button>
+                    {canRejectRequests ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-danger"
+                        onClick={() => void handleDecision("reject")}
+                        disabled={actionLoading}
+                      >
+                        {actionLoading ? "Saving..." : "Reject"}
+                      </button>
+                    ) : null}
+                    {canApproveRequests ? (
+                      <button
+                        type="button"
+                        className="btn btn-success"
+                        onClick={() => void handleDecision("approve")}
+                        disabled={actionLoading}
+                      >
+                        {actionLoading ? "Saving..." : "Approve"}
+                      </button>
+                    ) : null}
                   </>
                 ) : null}
               </div>

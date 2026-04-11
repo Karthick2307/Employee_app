@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/axios";
+import { usePermissions } from "../../context/PermissionContext";
 import {
   formatApprovalLabel,
   formatChecklistDependencyLabel,
@@ -143,19 +144,236 @@ const buildSubDepartmentOptions = (departmentRows = [], selectedDepartmentId = "
       flattenSubDepartments(department.subDepartments || [], [], department)
     );
 
+const VALIDATION_FOCUS_ORDER = [
+  "employeeAssignedSite",
+  "assignedToEmployee",
+  "checklistName",
+  "baseMark",
+  "delayPenaltyPerDay",
+  "advanceBonusPerDay",
+  "dependencyChecklistId",
+  "targetDayCount",
+  "startDate",
+  "scheduleTime",
+  "endDate",
+  "endTime",
+  "customRepeatInterval",
+  "customRepeatUnit",
+  "repeatDayOfWeek",
+  "repeatMonthOfYear",
+  "repeatDayOfMonth",
+  "taskRelatedQuestions",
+  "approvalSection",
+];
+
+const normalizeChecklistItems = (items = []) =>
+  items
+    .map((item) => ({
+      label: String(item?.label || "").trim(),
+      detail: String(item?.detail || "").trim(),
+      isRequired: item?.isRequired !== false,
+    }))
+    .filter((item) => item.label);
+
+const normalizeApprovalRows = (approvalRows = [], approvalHierarchy = "default") =>
+  approvalHierarchy === "custom"
+    ? approvalRows
+        .map((row) => row.approvalEmployee)
+        .filter(Boolean)
+        .map((approvalEmployee, index) => ({
+          approvalLevel: index + 1,
+          approvalEmployee,
+        }))
+    : [];
+
+const validateChecklistForm = ({
+  form,
+  items,
+  approvalRows,
+  defaultApprover,
+  isEditMode,
+  checklistId,
+}) => {
+  const errors = {};
+  const normalizedItems = normalizeChecklistItems(items);
+  const normalizedApprovals = normalizeApprovalRows(approvalRows, form.approvalHierarchy);
+
+  if (!String(form.employeeAssignedSite || "").trim()) {
+    errors.employeeAssignedSite = "Select the assigned site.";
+  }
+
+  if (!String(form.assignedToEmployee || "").trim()) {
+    errors.assignedToEmployee = "Select the employee.";
+  }
+
+  if (!String(form.checklistName || "").trim()) {
+    errors.checklistName = "Enter the checklist name.";
+  }
+
+  const hasIncompleteQuestionRow = items.some((item) => {
+    const label = String(item?.label || "").trim();
+    const detail = String(item?.detail || "").trim();
+    return !label && Boolean(detail);
+  });
+
+  if (hasIncompleteQuestionRow) {
+    errors.taskRelatedQuestions = "Enter a question text or remove the empty row.";
+  }
+
+  if (form.enableMark) {
+    const baseMark = Number(form.baseMark);
+    const delayPenaltyPerDay = Number(form.delayPenaltyPerDay);
+    const advanceBonusPerDay = Number(form.advanceBonusPerDay);
+
+    if (form.baseMark === "" || Number.isNaN(baseMark) || baseMark < 0) {
+      errors.baseMark = "Base mark is required when task scoring is enabled.";
+    }
+
+    if (
+      form.delayPenaltyPerDay === "" ||
+      Number.isNaN(delayPenaltyPerDay) ||
+      delayPenaltyPerDay < 0
+    ) {
+      errors.delayPenaltyPerDay = "Delay penalty per day must be zero or greater.";
+    }
+
+    if (
+      form.advanceBonusPerDay === "" ||
+      Number.isNaN(advanceBonusPerDay) ||
+      advanceBonusPerDay < 0
+    ) {
+      errors.advanceBonusPerDay = "Advance bonus per day must be zero or greater.";
+    }
+  }
+
+  if (form.isDependentTask && !String(form.dependencyChecklistId || "").trim()) {
+    errors.dependencyChecklistId =
+      "Select the old task number / previous task number for the dependent task.";
+  }
+
+  if (
+    form.isDependentTask &&
+    (form.targetDayCount === "" ||
+      Number.isNaN(Number(form.targetDayCount)) ||
+      Number(form.targetDayCount) <= 0)
+  ) {
+    errors.targetDayCount = "Target day count is required and must be greater than 0.";
+  }
+
+  if (
+    form.isDependentTask &&
+    isEditMode &&
+    String(form.dependencyChecklistId || "") === String(checklistId || "")
+  ) {
+    errors.dependencyChecklistId = "The same task cannot depend on itself.";
+  }
+
+  if (!String(form.startDate || "").trim()) {
+    errors.startDate = "Select the start date.";
+  }
+
+  if (!String(form.scheduleTime || "").trim()) {
+    errors.scheduleTime = "Select the start task time.";
+  }
+
+  if (!String(form.endDate || "").trim()) {
+    errors.endDate = "Select the end date.";
+  }
+
+  if (!String(form.endTime || "").trim()) {
+    errors.endTime = "Select the end time.";
+  }
+
+  if (
+    String(form.startDate || "").trim() &&
+    String(form.scheduleTime || "").trim() &&
+    String(form.endDate || "").trim() &&
+    String(form.endTime || "").trim()
+  ) {
+    const startWindow = new Date(`${form.startDate}T${form.scheduleTime}`);
+    const endWindow = new Date(`${form.endDate}T${form.endTime}`);
+
+    if (
+      Number.isNaN(startWindow.getTime()) ||
+      Number.isNaN(endWindow.getTime()) ||
+      endWindow <= startWindow
+    ) {
+      errors.endTime = "End date and end time must be later than start date and start task time.";
+    }
+  }
+
+  if (form.scheduleType === "custom") {
+    const interval = Number(form.customRepeatInterval || 0);
+
+    if (form.customRepeatInterval === "" || Number.isNaN(interval) || interval < 1) {
+      errors.customRepeatInterval = "Enter a valid repeat interval for the custom schedule.";
+    }
+
+    if (!String(form.customRepeatUnit || "").trim()) {
+      errors.customRepeatUnit = "Select the repeat unit for the custom schedule.";
+    }
+
+    if (form.customRepeatUnit === "weekly" && !String(form.repeatDayOfWeek || "").trim()) {
+      errors.repeatDayOfWeek = "Select a day of week for the custom weekly schedule.";
+    }
+
+    if (
+      form.customRepeatUnit === "monthly" &&
+      (!form.repeatDayOfMonth ||
+        Number.isNaN(Number(form.repeatDayOfMonth)) ||
+        Number(form.repeatDayOfMonth) < 1 ||
+        Number(form.repeatDayOfMonth) > 31)
+    ) {
+      errors.repeatDayOfMonth = "Select a valid day of month for the custom monthly schedule.";
+    }
+
+    if (
+      form.customRepeatUnit === "yearly" &&
+      (!form.repeatMonthOfYear ||
+        Number.isNaN(Number(form.repeatMonthOfYear)) ||
+        Number(form.repeatMonthOfYear) < 1 ||
+        Number(form.repeatMonthOfYear) > 12)
+    ) {
+      errors.repeatMonthOfYear = "Select a valid month for the custom yearly schedule.";
+    }
+
+    if (
+      form.customRepeatUnit === "yearly" &&
+      (!form.repeatDayOfMonth ||
+        Number.isNaN(Number(form.repeatDayOfMonth)) ||
+        Number(form.repeatDayOfMonth) < 1 ||
+        Number(form.repeatDayOfMonth) > 31)
+    ) {
+      errors.repeatDayOfMonth = "Select a valid day of month for the custom yearly schedule.";
+    }
+  }
+
+  if (
+    form.approvalHierarchy === "default" &&
+    String(form.assignedToEmployee || "").trim() &&
+    !defaultApprover
+  ) {
+    errors.approvalSection =
+      "Approval mapping is incomplete. Configure the employee's Superior Employee before using default approval.";
+  }
+
+  if (form.approvalHierarchy === "custom" && !normalizedApprovals.length) {
+    errors.approvalSection = "Select at least one approver for custom workflow mapping.";
+  }
+
+  return { errors, normalizedItems, normalizedApprovals };
+};
+
 export default function ChecklistCreate({ mode = "create" }) {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditMode = mode === "edit" && Boolean(id);
-  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
-  const currentUserRole = String(currentUser?.role || "").trim().toLowerCase();
-  const isAdminChecklistUser = currentUserRole === "admin";
-  const usesApprovalRequestFlow = !isAdminChecklistUser;
+  const { can, scope } = usePermissions();
+  const canApplyChecklistChangesDirectly = can("checklist_master", "approve");
+  const usesApprovalRequestFlow = !canApplyChecklistChangesDirectly;
   const restrictedChecklistSiteId =
-    currentUserRole !== "admin" &&
-    currentUserRole !== "employee" &&
-    (currentUserRole === "user" || Boolean(currentUser?.checklistMasterAccess))
-      ? String(currentUser?.siteId || "").trim()
+    Array.isArray(scope?.siteIds) && scope.siteIds.length === 1
+      ? String(scope.siteIds[0] || "").trim()
       : "";
 
   const [form, setForm] = useState(defaultForm);
@@ -163,16 +381,21 @@ export default function ChecklistCreate({ mode = "create" }) {
   const [departments, setDepartments] = useState([]);
   const [siteOptions, setSiteOptions] = useState([]);
   const [dependencyChecklists, setDependencyChecklists] = useState([]);
-  const [items, setItems] = useState([createItemRow()]);
+  const [items, setItems] = useState([]);
   const [approvalRows, setApprovalRows] = useState([createApprovalRow()]);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [numberLoading, setNumberLoading] = useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [showWorkflowMapping, setShowWorkflowMapping] = useState(false);
   const [workflowDepartment, setWorkflowDepartment] = useState("");
   const [workflowSubDepartment, setWorkflowSubDepartment] = useState("");
   const [workflowSearch, setWorkflowSearch] = useState("");
   const [workflowSelectedEmployeeIds, setWorkflowSelectedEmployeeIds] = useState([]);
+  const fieldRefs = useRef({});
+  const sectionRefs = useRef({});
+  const submitErrorRef = useRef(null);
 
   const selectedEmployee = useMemo(
     () =>
@@ -232,6 +455,90 @@ export default function ChecklistCreate({ mode = "create" }) {
     () => buildSubDepartmentOptions(departments, workflowDepartment),
     [departments, workflowDepartment]
   );
+  const validationResult = useMemo(
+    () =>
+      validateChecklistForm({
+        form,
+        items,
+        approvalRows,
+        defaultApprover,
+        isEditMode,
+        checklistId: id,
+      }),
+    [approvalRows, defaultApprover, form, id, isEditMode, items]
+  );
+  const validationErrors = hasAttemptedSubmit ? validationResult.errors : {};
+
+  const registerFieldRef = (key) => (node) => {
+    if (node) {
+      fieldRefs.current[key] = node;
+      return;
+    }
+
+    delete fieldRefs.current[key];
+  };
+
+  const registerSectionRef = (key) => (node) => {
+    if (node) {
+      sectionRefs.current[key] = node;
+      return;
+    }
+
+    delete sectionRefs.current[key];
+  };
+
+  const focusValidationTarget = (errorKey) => {
+    const target =
+      fieldRefs.current[errorKey] || sectionRefs.current[errorKey] || submitErrorRef.current;
+
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    if (typeof target.focus === "function") {
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        target.focus();
+      }
+    }
+  };
+
+  const scrollToFirstValidationError = (errors) => {
+    const firstErrorKey =
+      VALIDATION_FOCUS_ORDER.find((key) => errors[key]) || Object.keys(errors)[0];
+
+    if (!firstErrorKey) return;
+
+    requestAnimationFrame(() => focusValidationTarget(firstErrorKey));
+  };
+
+  const scrollToSubmitError = () => {
+    requestAnimationFrame(() => {
+      submitErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  };
+
+  const getFieldClassName = (baseClassName, errorKey) =>
+    validationErrors[errorKey] ? `${baseClassName} is-invalid` : baseClassName;
+
+  const getSectionClassName = (baseClassName, errorKey) =>
+    validationErrors[errorKey] ? `${baseClassName} border-danger` : baseClassName;
+
+  const getSectionStyle = (errorKey) =>
+    validationErrors[errorKey]
+      ? { backgroundColor: "#fff5f5", borderColor: "#dc3545" }
+      : undefined;
+
+  const renderFieldError = (errorKey) =>
+    validationErrors[errorKey] ? (
+      <div className="invalid-feedback d-block">{validationErrors[errorKey]}</div>
+    ) : null;
+
+  const renderSectionError = (errorKey) =>
+    validationErrors[errorKey] ? (
+      <div className="text-danger small mt-3">{validationErrors[errorKey]}</div>
+    ) : null;
 
   useEffect(() => {
     const loadPage = async () => {
@@ -333,7 +640,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                 isRequired: item.isRequired !== false,
               }))
             : [];
-          setItems(checklistItems.length ? checklistItems : [createItemRow()]);
+          setItems(checklistItems);
 
           const checklistApprovals = Array.isArray(checklist.approvals)
             ? checklist.approvals.map((row) => ({
@@ -393,6 +700,7 @@ export default function ChecklistCreate({ mode = "create" }) {
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target;
     const nextValue = type === "checkbox" ? checked : value;
+    setSubmitError("");
 
     if (name === "isDependentTask") {
       const nextIsDependentTask = value === "yes";
@@ -464,30 +772,36 @@ export default function ChecklistCreate({ mode = "create" }) {
   };
 
   const updateItem = (rowId, key, value) => {
+    setSubmitError("");
     setItems((prev) =>
       prev.map((item) => (item.id === rowId ? { ...item, [key]: value } : item))
     );
   };
 
   const addItem = () => {
+    setSubmitError("");
     setItems((prev) => [...prev, createItemRow()]);
   };
 
   const removeItem = (rowId) => {
-    setItems((prev) => (prev.length === 1 ? prev : prev.filter((item) => item.id !== rowId)));
+    setSubmitError("");
+    setItems((prev) => prev.filter((item) => item.id !== rowId));
   };
 
   const updateApprovalRow = (rowId, value) => {
+    setSubmitError("");
     setApprovalRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, approvalEmployee: value } : row))
     );
   };
 
   const addApprovalRow = () => {
+    setSubmitError("");
     setApprovalRows((prev) => [...prev, createApprovalRow()]);
   };
 
   const removeApprovalRow = (rowId) => {
+    setSubmitError("");
     setApprovalRows((prev) => (prev.length === 1 ? prev : prev.filter((row) => row.id !== rowId)));
   };
 
@@ -565,138 +879,13 @@ export default function ChecklistCreate({ mode = "create" }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    setHasAttemptedSubmit(true);
+    setSubmitError("");
 
-    const normalizedItems = items
-      .map((item) => ({
-        label: item.label.trim(),
-        detail: item.detail.trim(),
-        isRequired: item.isRequired !== false,
-      }))
-      .filter((item) => item.label);
+    const { errors, normalizedItems, normalizedApprovals } = validationResult;
 
-    if (!normalizedItems.length) {
-      alert("Add at least one task related question.");
-      return;
-    }
-
-    const startWindow = new Date(`${form.startDate}T${form.scheduleTime}`);
-    const endWindow = new Date(`${form.endDate}T${form.endTime}`);
-
-    if (
-      Number.isNaN(startWindow.getTime()) ||
-      Number.isNaN(endWindow.getTime()) ||
-      endWindow <= startWindow
-    ) {
-      alert("End date and end time must be later than start date and start task time.");
-      return;
-    }
-
-    if (form.scheduleType === "custom") {
-      const interval = Number(form.customRepeatInterval || 0);
-
-      if (!form.customRepeatUnit || Number.isNaN(interval) || interval < 1) {
-        alert("Custom schedule must include a valid repeat interval and unit.");
-        return;
-      }
-
-      if (form.customRepeatUnit === "weekly" && !form.repeatDayOfWeek) {
-        alert("Select a day of week for custom weekly schedule.");
-        return;
-      }
-
-      if (
-        form.customRepeatUnit === "monthly" &&
-        (!form.repeatDayOfMonth ||
-          Number(form.repeatDayOfMonth) < 1 ||
-          Number(form.repeatDayOfMonth) > 31)
-      ) {
-        alert("Select a valid day of month for custom monthly schedule.");
-        return;
-      }
-
-      if (
-        form.customRepeatUnit === "yearly" &&
-        (!form.repeatMonthOfYear ||
-          Number(form.repeatMonthOfYear) < 1 ||
-          Number(form.repeatMonthOfYear) > 12 ||
-          !form.repeatDayOfMonth ||
-          Number(form.repeatDayOfMonth) < 1 ||
-          Number(form.repeatDayOfMonth) > 31)
-      ) {
-        alert("Select a valid month and day for custom yearly schedule.");
-        return;
-      }
-    }
-
-    if (form.enableMark) {
-      const baseMark = Number(form.baseMark);
-      const delayPenaltyPerDay = Number(form.delayPenaltyPerDay);
-      const advanceBonusPerDay = Number(form.advanceBonusPerDay);
-
-      if (!form.baseMark || Number.isNaN(baseMark) || baseMark < 0) {
-        alert("Base mark is required when task scoring is enabled.");
-        return;
-      }
-
-      if (
-        form.delayPenaltyPerDay === "" ||
-        Number.isNaN(delayPenaltyPerDay) ||
-        delayPenaltyPerDay < 0
-      ) {
-        alert("Delay penalty per day must be zero or greater.");
-        return;
-      }
-
-      if (
-        form.advanceBonusPerDay === "" ||
-        Number.isNaN(advanceBonusPerDay) ||
-        advanceBonusPerDay < 0
-      ) {
-        alert("Advance bonus per day must be zero or greater.");
-        return;
-      }
-    }
-
-    if (form.approvalHierarchy === "default" && !defaultApprover) {
-      alert(
-        "Approval mapping is incomplete. Configure the employee's Superior Employee before using default approval."
-      );
-      return;
-    }
-
-    const normalizedApprovals =
-      form.approvalHierarchy === "custom"
-        ? approvalRows
-            .map((row) => row.approvalEmployee)
-            .filter(Boolean)
-            .map((approvalEmployee, index) => ({
-              approvalLevel: index + 1,
-              approvalEmployee,
-            }))
-        : [];
-
-    if (form.approvalHierarchy === "custom" && !normalizedApprovals.length) {
-      alert("Select at least one approver for custom workflow mapping.");
-      return;
-    }
-
-    if (form.isDependentTask && !form.dependencyChecklistId) {
-      alert("Select the Old Task Number / Previous Task Number for the dependent task.");
-      return;
-    }
-
-    if (
-      form.isDependentTask &&
-      (!form.targetDayCount ||
-        Number.isNaN(Number(form.targetDayCount)) ||
-        Number(form.targetDayCount) <= 0)
-    ) {
-      alert("Target Day Count is required and must be greater than 0.");
-      return;
-    }
-
-    if (isEditMode && String(form.dependencyChecklistId) === String(id)) {
-      alert("The same task cannot depend on itself.");
+    if (Object.keys(errors).length) {
+      scrollToFirstValidationError(errors);
       return;
     }
 
@@ -710,24 +899,20 @@ export default function ChecklistCreate({ mode = "create" }) {
         approvals: normalizedApprovals,
       };
 
-      let response;
       if (isEditMode) {
-        response = await api.put(`/checklists/${id}`, payload);
+        await api.put(`/checklists/${id}`, payload);
       } else {
-        response = await api.post("/checklists", payload);
-      }
-
-      if (response?.data?.message) {
-        alert(response.data.message);
+        await api.post("/checklists", payload);
       }
 
       navigate("/checklists");
     } catch (err) {
       console.error("Checklist save failed:", err);
-      alert(
+      setSubmitError(
         err.response?.data?.message ||
           (isEditMode ? "Failed to update checklist master" : "Failed to create checklist master")
       );
+      scrollToSubmitError();
     } finally {
       setLoading(false);
     }
@@ -756,8 +941,14 @@ export default function ChecklistCreate({ mode = "create" }) {
         </button>
       </div>
 
-      <form className="card shadow-sm border-0" onSubmit={handleSubmit}>
+      <form className="card shadow-sm border-0" onSubmit={handleSubmit} noValidate>
         <div className="card-body">
+          {submitError ? (
+            <div ref={submitErrorRef} className="alert alert-danger mb-4" role="alert">
+              {submitError}
+            </div>
+          ) : null}
+
           <div className="row g-4">
             <div className="col-12 col-xl-6">
               <div className="border rounded-4 p-4 bg-light h-100">
@@ -772,7 +963,8 @@ export default function ChecklistCreate({ mode = "create" }) {
             <div className="col-md-6">
               <label className="form-label fw-semibold">Assigned Site</label>
               <select
-                className="form-select"
+                ref={registerFieldRef("employeeAssignedSite")}
+                className={getFieldClassName("form-select", "employeeAssignedSite")}
                 name="employeeAssignedSite"
                 value={form.employeeAssignedSite}
                 onChange={handleFormChange}
@@ -786,6 +978,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                   </option>
                 ))}
               </select>
+              {renderFieldError("employeeAssignedSite")}
               <small className="text-muted">
                 Checklist number is generated from this site. Example: Head Office {"->"} HO - 001.
               </small>
@@ -794,7 +987,8 @@ export default function ChecklistCreate({ mode = "create" }) {
             <div className="col-md-6">
               <label className="form-label fw-semibold">Assign To Employee</label>
               <select
-                className="form-select"
+                ref={registerFieldRef("assignedToEmployee")}
+                className={getFieldClassName("form-select", "assignedToEmployee")}
                 name="assignedToEmployee"
                 value={form.assignedToEmployee}
                 onChange={handleFormChange}
@@ -807,6 +1001,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                   </option>
                 ))}
               </select>
+              {renderFieldError("assignedToEmployee")}
               <small className="text-muted">
                 {restrictedChecklistSiteId
                   ? "Employees are limited to your mapped site."
@@ -829,12 +1024,14 @@ export default function ChecklistCreate({ mode = "create" }) {
             <div className="col-md-8">
               <label className="form-label fw-semibold">Checklist Name</label>
               <input
-                className="form-control"
+                ref={registerFieldRef("checklistName")}
+                className={getFieldClassName("form-control", "checklistName")}
                 name="checklistName"
                 value={form.checklistName}
                 onChange={handleFormChange}
                 required
               />
+              {renderFieldError("checklistName")}
             </div>
 
             <div className="col-md-6">
@@ -868,43 +1065,49 @@ export default function ChecklistCreate({ mode = "create" }) {
                     <div className="col-12">
                       <label className="form-label fw-semibold">Base Mark</label>
                       <input
+                        ref={registerFieldRef("baseMark")}
                         type="number"
                         min="0"
                         step="0.5"
-                        className="form-control"
+                        className={getFieldClassName("form-control", "baseMark")}
                         name="baseMark"
                         value={form.baseMark}
                         onChange={handleFormChange}
                         required={form.enableMark}
                       />
+                      {renderFieldError("baseMark")}
                     </div>
 
                     <div className="col-md-6">
                       <label className="form-label fw-semibold">Delay Penalty / Day</label>
                       <input
+                        ref={registerFieldRef("delayPenaltyPerDay")}
                         type="number"
                         min="0"
                         step="0.5"
-                        className="form-control"
+                        className={getFieldClassName("form-control", "delayPenaltyPerDay")}
                         name="delayPenaltyPerDay"
                         value={form.delayPenaltyPerDay}
                         onChange={handleFormChange}
                         required={form.enableMark}
                       />
+                      {renderFieldError("delayPenaltyPerDay")}
                     </div>
 
                     <div className="col-md-6">
                       <label className="form-label fw-semibold">Advance Bonus / Day</label>
                       <input
+                        ref={registerFieldRef("advanceBonusPerDay")}
                         type="number"
                         min="0"
                         step="0.5"
-                        className="form-control"
+                        className={getFieldClassName("form-control", "advanceBonusPerDay")}
                         name="advanceBonusPerDay"
                         value={form.advanceBonusPerDay}
                         onChange={handleFormChange}
                         required={form.enableMark}
                       />
+                      {renderFieldError("advanceBonusPerDay")}
                     </div>
 
                     <div className="col-12">
@@ -983,7 +1186,8 @@ export default function ChecklistCreate({ mode = "create" }) {
                     Old Task Number / Previous Task Number
                   </label>
                   <select
-                    className="form-select"
+                    ref={registerFieldRef("dependencyChecklistId")}
+                    className={getFieldClassName("form-select", "dependencyChecklistId")}
                     name="dependencyChecklistId"
                     value={form.dependencyChecklistId}
                     onChange={handleFormChange}
@@ -1002,6 +1206,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                       </option>
                     ))}
                   </select>
+                  {renderFieldError("dependencyChecklistId")}
                   <small className="text-muted">
                     This dependent task will be auto-created only once after the selected previous
                     task reaches final completion.
@@ -1011,15 +1216,17 @@ export default function ChecklistCreate({ mode = "create" }) {
                 <div className="col-md-4">
                   <label className="form-label fw-semibold">Target Day Count</label>
                   <input
+                    ref={registerFieldRef("targetDayCount")}
                     type="number"
                     min="0.01"
                     step="0.5"
-                    className="form-control"
+                    className={getFieldClassName("form-control", "targetDayCount")}
                     name="targetDayCount"
                     value={form.targetDayCount}
                     onChange={handleFormChange}
                     required={form.isDependentTask}
                   />
+                  {renderFieldError("targetDayCount")}
                   <small className="text-muted">
                     Due date = previous task completed date/time + target day count.
                   </small>
@@ -1046,25 +1253,29 @@ export default function ChecklistCreate({ mode = "create" }) {
             <div className="col-md-6">
               <label className="form-label fw-semibold">Start Date</label>
               <input
+                ref={registerFieldRef("startDate")}
                 type="date"
-                className="form-control"
+                className={getFieldClassName("form-control", "startDate")}
                 name="startDate"
                 value={form.startDate}
                 onChange={handleFormChange}
                 required
               />
+              {renderFieldError("startDate")}
             </div>
 
             <div className="col-md-6">
               <label className="form-label fw-semibold">Start Task Time</label>
               <input
+                ref={registerFieldRef("scheduleTime")}
                 type="time"
-                className="form-control"
+                className={getFieldClassName("form-control", "scheduleTime")}
                 name="scheduleTime"
                 value={form.scheduleTime}
                 onChange={handleFormChange}
                 required
               />
+              {renderFieldError("scheduleTime")}
               <small className="text-muted">
                 Tasks auto-post from Schedule Type, Start Date, and Task Time using India time (IST).
               </small>
@@ -1073,25 +1284,29 @@ export default function ChecklistCreate({ mode = "create" }) {
             <div className="col-md-6">
               <label className="form-label fw-semibold">End Date</label>
               <input
+                ref={registerFieldRef("endDate")}
                 type="date"
-                className="form-control"
+                className={getFieldClassName("form-control", "endDate")}
                 name="endDate"
                 value={form.endDate}
                 onChange={handleFormChange}
                 required
               />
+              {renderFieldError("endDate")}
             </div>
 
             <div className="col-md-6">
               <label className="form-label fw-semibold">End Time</label>
               <input
+                ref={registerFieldRef("endTime")}
                 type="time"
-                className="form-control"
+                className={getFieldClassName("form-control", "endTime")}
                 name="endTime"
                 value={form.endTime}
                 onChange={handleFormChange}
                 required
               />
+              {renderFieldError("endTime")}
               <small className="text-muted">
                 Reports use the end date and end time to mark each task as On Time, Delay, or Advanced.
               </small>
@@ -1119,19 +1334,22 @@ export default function ChecklistCreate({ mode = "create" }) {
                 <div className="col-md-6">
                   <label className="form-label fw-semibold">Custom Interval</label>
                   <input
+                    ref={registerFieldRef("customRepeatInterval")}
                     type="number"
                     min="1"
-                    className="form-control"
+                    className={getFieldClassName("form-control", "customRepeatInterval")}
                     name="customRepeatInterval"
                     value={form.customRepeatInterval}
                     onChange={handleFormChange}
                   />
+                  {renderFieldError("customRepeatInterval")}
                 </div>
 
                 <div className="col-md-6">
                   <label className="form-label fw-semibold">Custom Unit</label>
                   <select
-                    className="form-select"
+                    ref={registerFieldRef("customRepeatUnit")}
+                    className={getFieldClassName("form-select", "customRepeatUnit")}
                     name="customRepeatUnit"
                     value={form.customRepeatUnit}
                     onChange={handleFormChange}
@@ -1142,13 +1360,15 @@ export default function ChecklistCreate({ mode = "create" }) {
                       </option>
                     ))}
                   </select>
+                  {renderFieldError("customRepeatUnit")}
                 </div>
 
                 {form.customRepeatUnit === "weekly" && (
                   <div className="col-md-6">
                     <label className="form-label fw-semibold">Day of Week</label>
                     <select
-                      className="form-select"
+                      ref={registerFieldRef("repeatDayOfWeek")}
+                      className={getFieldClassName("form-select", "repeatDayOfWeek")}
                       name="repeatDayOfWeek"
                       value={form.repeatDayOfWeek}
                       onChange={handleFormChange}
@@ -1160,6 +1380,7 @@ export default function ChecklistCreate({ mode = "create" }) {
                         </option>
                       ))}
                     </select>
+                    {renderFieldError("repeatDayOfWeek")}
                   </div>
                 )}
 
@@ -1167,14 +1388,16 @@ export default function ChecklistCreate({ mode = "create" }) {
                   <div className="col-md-6">
                     <label className="form-label fw-semibold">Day of Month</label>
                     <input
+                      ref={registerFieldRef("repeatDayOfMonth")}
                       type="number"
                       min="1"
                       max="31"
-                      className="form-control"
+                      className={getFieldClassName("form-control", "repeatDayOfMonth")}
                       name="repeatDayOfMonth"
                       value={form.repeatDayOfMonth}
                       onChange={handleFormChange}
                     />
+                    {renderFieldError("repeatDayOfMonth")}
                   </div>
                 )}
 
@@ -1183,7 +1406,8 @@ export default function ChecklistCreate({ mode = "create" }) {
                     <div className="col-md-6">
                       <label className="form-label fw-semibold">Month</label>
                       <select
-                        className="form-select"
+                        ref={registerFieldRef("repeatMonthOfYear")}
+                        className={getFieldClassName("form-select", "repeatMonthOfYear")}
                         name="repeatMonthOfYear"
                         value={form.repeatMonthOfYear}
                         onChange={handleFormChange}
@@ -1195,19 +1419,22 @@ export default function ChecklistCreate({ mode = "create" }) {
                           </option>
                         ))}
                       </select>
+                      {renderFieldError("repeatMonthOfYear")}
                     </div>
 
                     <div className="col-md-6">
                       <label className="form-label fw-semibold">Day of Month</label>
                       <input
+                        ref={registerFieldRef("repeatDayOfMonth")}
                         type="number"
                         min="1"
                         max="31"
-                        className="form-control"
+                        className={getFieldClassName("form-control", "repeatDayOfMonth")}
                         name="repeatDayOfMonth"
                         value={form.repeatDayOfMonth}
                         onChange={handleFormChange}
                       />
+                      {renderFieldError("repeatDayOfMonth")}
                     </div>
                   </>
                 )}
@@ -1226,12 +1453,17 @@ export default function ChecklistCreate({ mode = "create" }) {
 
             <div className="col-12 col-xl-6">
               <div className="d-flex flex-column gap-4">
-                <div className="border rounded-4 p-4 bg-light">
+                <div
+                  ref={registerSectionRef("taskRelatedQuestions")}
+                  className={getSectionClassName("border rounded-4 p-4 bg-light", "taskRelatedQuestions")}
+                  style={getSectionStyle("taskRelatedQuestions")}
+                >
                   <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-3">
             <div>
               <h5 className="mb-1">Task Related Questions</h5>
               <div className="text-muted small">
-                These questions are copied into every generated employee task and shown for employee answers.
+                Optional. These questions are copied into every generated employee task and shown
+                for employee answers.
               </div>
             </div>
 
@@ -1251,54 +1483,80 @@ export default function ChecklistCreate({ mode = "create" }) {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <input
-                        className="form-control"
-                        value={item.label}
-                        onChange={(event) => updateItem(item.id, "label", event.target.value)}
-                        placeholder="Question text"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        className="form-control"
-                        value={item.detail}
-                        onChange={(event) => updateItem(item.id, "detail", event.target.value)}
-                        placeholder="Guidance or example answer for the employee"
-                      />
-                    </td>
-                    <td>
-                      <div className="form-check">
+                {items.length ? (
+                  items.map((item) => (
+                    <tr key={item.id}>
+                      <td>
                         <input
-                          className="form-check-input"
-                          type="checkbox"
-                          checked={item.isRequired}
-                          onChange={(event) =>
-                            updateItem(item.id, "isRequired", event.target.checked)
+                          ref={
+                            validationErrors.taskRelatedQuestions &&
+                            !String(item.label || "").trim() &&
+                            String(item.detail || "").trim()
+                              ? registerFieldRef("taskRelatedQuestions")
+                              : undefined
                           }
+                          className={
+                            validationErrors.taskRelatedQuestions &&
+                            !String(item.label || "").trim() &&
+                            String(item.detail || "").trim()
+                              ? "form-control is-invalid"
+                              : "form-control"
+                          }
+                          value={item.label}
+                          onChange={(event) => updateItem(item.id, "label", event.target.value)}
+                          placeholder="Question text"
                         />
-                        <label className="form-check-label">Mandatory</label>
-                      </div>
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-danger"
-                        onClick={() => removeItem(item.id)}
-                      >
-                        Remove
-                      </button>
+                      </td>
+                      <td>
+                        <input
+                          className="form-control"
+                          value={item.detail}
+                          onChange={(event) => updateItem(item.id, "detail", event.target.value)}
+                          placeholder="Guidance or example answer for the employee"
+                        />
+                      </td>
+                      <td>
+                        <div className="form-check">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={item.isRequired}
+                            onChange={(event) =>
+                              updateItem(item.id, "isRequired", event.target.checked)
+                            }
+                          />
+                          <label className="form-check-label">Mandatory</label>
+                        </div>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => removeItem(item.id)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="text-center text-muted py-4">
+                      Task related questions are optional. Add a question only when needed.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
+          {renderSectionError("taskRelatedQuestions")}
                 </div>
 
-                <div className="border rounded-4 p-4 bg-light">
+                <div
+                  ref={registerSectionRef("approvalSection")}
+                  className={getSectionClassName("border rounded-4 p-4 bg-light", "approvalSection")}
+                  style={getSectionStyle("approvalSection")}
+                >
                   <div className="mb-3">
             <h5 className="mb-1">Approval / Workflow Mapping</h5>
             <div className="text-muted small">
@@ -1364,7 +1622,16 @@ export default function ChecklistCreate({ mode = "create" }) {
                         <td>{index + 1}</td>
                         <td>
                           <select
-                            className="form-select"
+                            ref={
+                              index === 0 && form.approvalHierarchy === "custom"
+                                ? registerFieldRef("approvalSection")
+                                : undefined
+                            }
+                            className={
+                              validationErrors.approvalSection && !row.approvalEmployee
+                                ? "form-select is-invalid"
+                                : "form-select"
+                            }
                             value={row.approvalEmployee}
                             onChange={(event) => updateApprovalRow(row.id, event.target.value)}
                           >
@@ -1403,6 +1670,7 @@ export default function ChecklistCreate({ mode = "create" }) {
               </div>
             </>
           )}
+          {renderSectionError("approvalSection")}
 
                   {selectedEmployee && (
                     <div className="border rounded-4 p-4 bg-light">

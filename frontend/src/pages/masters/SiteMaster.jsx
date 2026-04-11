@@ -370,7 +370,7 @@ export default function SiteMaster() {
   };
 
   return (
-    <div className="container mt-4">
+    <div className="container-fluid px-3 px-lg-4 mt-4 mb-5">
       <h3>Site Master</h3>
 
       <div className="card p-3 mb-3">
@@ -447,7 +447,7 @@ export default function SiteMaster() {
           </div>
         )}
 
-        <div className="d-flex gap-2">
+        <div className="d-flex flex-wrap gap-2">
           <button className="btn btn-success" onClick={saveSite} disabled={loading}>
             {loading ? "Saving..." : editingId ? "Update" : "Save"}
           </button>
@@ -459,52 +459,56 @@ export default function SiteMaster() {
         </div>
       </div>
 
-      <table className="table table-bordered">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Company</th>
-            <th>Site</th>
-            <th>Site Heads</th>
-            <th>Site Leads</th>
-            <th>Sub Sites</th>
-            <th width="290">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sites.map((s, i) => (
-            <tr key={s._id}>
-              <td>{i + 1}</td>
-              <td>{s.companyName || "-"}</td>
-              <td>{s.name}</td>
-              <td>{s.headNames?.length ? s.headNames.join(", ") : "-"}</td>
-              <td>{s.siteLeadNames?.length ? s.siteLeadNames.join(", ") : "-"}</td>
-              <td>
-                {s.subSites?.length
-                  ? s.subSites
-                      .map((sub) =>
-                        sub.headNames?.length
-                          ? `${sub.name} (${sub.headNames.join(", ")})`
-                          : sub.name
-                      )
-                      .join(", ")
-                  : "-"}
-              </td>
-              <td>
-                <button className="btn btn-sm btn-primary me-2" onClick={() => openSubSiteManager(s)}>
-                  Manage Sub
-                </button>
-                <button className="btn btn-sm btn-warning me-2" onClick={() => editRow(s)}>
-                  Edit
-                </button>
-                <button className="btn btn-sm btn-danger" onClick={() => deleteRow(s._id)}>
-                  Delete
-                </button>
-              </td>
+      <div className="table-responsive">
+        <table className="table table-bordered">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Company</th>
+              <th>Site</th>
+              <th>Site Heads</th>
+              <th>Site Leads</th>
+              <th>Sub Sites</th>
+              <th width="290">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sites.map((s, i) => (
+              <tr key={s._id}>
+                <td>{i + 1}</td>
+                <td>{s.companyName || "-"}</td>
+                <td>{s.name}</td>
+                <td>{s.headNames?.length ? s.headNames.join(", ") : "-"}</td>
+                <td>{s.siteLeadNames?.length ? s.siteLeadNames.join(", ") : "-"}</td>
+                <td>
+                  {s.subSites?.length
+                    ? s.subSites
+                        .map((sub) =>
+                          sub.headNames?.length
+                            ? `${sub.name} (${sub.headNames.join(", ")})`
+                            : sub.name
+                        )
+                        .join(", ")
+                    : "-"}
+                </td>
+                <td>
+                  <div className="d-flex flex-wrap gap-2">
+                    <button className="btn btn-sm btn-primary" onClick={() => openSubSiteManager(s)}>
+                      Manage Sub
+                    </button>
+                    <button className="btn btn-sm btn-warning" onClick={() => editRow(s)}>
+                      Edit
+                    </button>
+                    <button className="btn btn-sm btn-danger" onClick={() => deleteRow(s._id)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {selectedSiteId && (
         <div className="card p-3">
@@ -528,7 +532,7 @@ export default function SiteMaster() {
             ))}
           </div>
 
-          <div className="d-flex gap-2 mb-3">
+          <div className="d-flex flex-column flex-lg-row align-items-start gap-2 mb-3">
             <div className="flex-grow-1">
               <textarea
                 className="form-control mb-2"
@@ -563,59 +567,65 @@ export default function SiteMaster() {
                 </div>
               )}
             </div>
-            <button className="btn btn-success" onClick={saveSubSite} disabled={subLoading}>
-              {subLoading ? "Saving..." : subEditingId ? "Update" : "Add"}
-            </button>
-            {subEditingId && (
-              <button className="btn btn-secondary" onClick={resetSubSiteForm}>
-                Cancel
+            <div className="d-flex flex-wrap gap-2">
+              <button className="btn btn-success" onClick={saveSubSite} disabled={subLoading}>
+                {subLoading ? "Saving..." : subEditingId ? "Update" : "Add"}
               </button>
-            )}
-            <button className="btn btn-outline-secondary" onClick={clearSubSiteContext}>
-              Close
-            </button>
+              {subEditingId && (
+                <button className="btn btn-secondary" onClick={resetSubSiteForm}>
+                  Cancel
+                </button>
+              )}
+              <button className="btn btn-outline-secondary" onClick={clearSubSiteContext}>
+                Close
+              </button>
+            </div>
           </div>
 
-          <table className="table table-bordered">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Sub Site Master {currentSubLevel}</th>
-                <th>Sub Site Heads</th>
-                <th width="250">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subSites.length === 0 && (
+          <div className="table-responsive">
+            <table className="table table-bordered">
+              <thead>
                 <tr>
-                  <td colSpan="4" className="text-center">
-                    No sub sites found
-                  </td>
+                  <th>#</th>
+                  <th>Sub Site Master {currentSubLevel}</th>
+                  <th>Sub Site Heads</th>
+                  <th width="250">Actions</th>
                 </tr>
-              )}
+              </thead>
+              <tbody>
+                {subSites.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="text-center">
+                      No sub sites found
+                    </td>
+                  </tr>
+                )}
 
-              {subSites.map((sub, index) => (
-                <tr key={sub._id}>
-                  <td>{index + 1}</td>
-                  <td>{sub.name}</td>
-                  <td>{sub.headNames?.length ? sub.headNames.join(", ") : "-"}</td>
-                  <td>
-                    {currentSubLevel < 4 && (
-                      <button className="btn btn-sm btn-primary me-2" onClick={() => openNextSubLevel(sub)}>
-                        Next Level
-                      </button>
-                    )}
-                    <button className="btn btn-sm btn-warning me-2" onClick={() => editSubSite(sub)}>
-                      Edit
-                    </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteSubSite(sub._id)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                {subSites.map((sub, index) => (
+                  <tr key={sub._id}>
+                    <td>{index + 1}</td>
+                    <td>{sub.name}</td>
+                    <td>{sub.headNames?.length ? sub.headNames.join(", ") : "-"}</td>
+                    <td>
+                      <div className="d-flex flex-wrap gap-2">
+                        {currentSubLevel < 4 && (
+                          <button className="btn btn-sm btn-primary" onClick={() => openNextSubLevel(sub)}>
+                            Next Level
+                          </button>
+                        )}
+                        <button className="btn btn-sm btn-warning" onClick={() => editSubSite(sub)}>
+                          Edit
+                        </button>
+                        <button className="btn btn-sm btn-danger" onClick={() => deleteSubSite(sub._id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

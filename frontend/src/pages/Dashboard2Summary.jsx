@@ -41,7 +41,7 @@ const renderSummaryMark = (value) => (
   <>
     <span className="dashboard-mark-line__label">Mark</span>
     <span className="dashboard-mark-line__value">
-      {value === null || value === undefined ? "-" : formatMarkValue(value)}
+      {formatMarkValue(value ?? 0)}
     </span>
   </>
 );
@@ -89,16 +89,7 @@ export default function Dashboard2Summary() {
     };
 
     loadSummary();
-  }, [
-    filters.company,
-    filters.site,
-    filters.department,
-    filters.subDepartment,
-    filters.employee,
-    filters.fromDate,
-    filters.toDate,
-    filters.checklistType,
-  ]);
+  }, [filters]);
 
   const updateFilter = (field, value) => {
     setFilters((currentValue) => {

@@ -94,6 +94,8 @@ export default function OwnTasks() {
   const user = getUser();
   const isEmployee = String(user?.role || "").trim().toLowerCase() === "employee";
   const attachmentInputRef = useRef(null);
+  const loadTasksRef = useRef(async () => {});
+  const loadTaskDetailRef = useRef(async () => {});
 
   const [form, setForm] = useState(initialFormState);
   const [attachmentFile, setAttachmentFile] = useState(null);
@@ -206,7 +208,7 @@ export default function OwnTasks() {
   }, [shareEmployeeSearch, shareableEmployees]);
 
   useEffect(() => {
-    void loadTasks();
+    void loadTasksRef.current();
   }, [search, statusFilter]);
 
   useEffect(() => {
@@ -215,7 +217,7 @@ export default function OwnTasks() {
       return;
     }
 
-    void loadTaskDetail(id);
+    void loadTaskDetailRef.current(id);
   }, [id]);
 
   useEffect(() => {
@@ -305,6 +307,9 @@ export default function OwnTasks() {
       setDetailLoading(false);
     }
   };
+
+  loadTasksRef.current = loadTasks;
+  loadTaskDetailRef.current = loadTaskDetail;
 
   const loadShareableEmployees = async () => {
     setShareListLoading(true);

@@ -8,6 +8,14 @@ const Employee = require("../models/Employee");
 const Site = require("../models/Site");
 const User = require("../models/User");
 const {
+  buildChecklistMasterScopeFilter,
+  filterRowsByAccessibleEmployees,
+  isAllScope,
+  resolveAccessibleEmployeeIds,
+  uniqueIdList,
+} = require("../services/accessScope.service");
+const { hasModulePermission } = require("../services/permissionResolver.service");
+const {
   TASK_STATUSES,
   TASK_TIMELINESS_STATUSES,
   applyChecklistDecision,
@@ -30,6 +38,49 @@ const {
 } = require("../services/checklistWorkflow.service");
 
 const normalizeText = (value) => String(value || "").trim();
+const canViewChecklistTransfer = (user) =>
+  hasModulePermission(user?.permissions, "checklist_transfer", "view");
+const canApproveChecklistRequests = (user) =>
+  hasModulePermission(user?.permissions, "checklist_master", "approve");
+const canRejectChecklistRequests = (user) =>
+  hasModulePermission(user?.permissions, "checklist_master", "reject");
+const canReviewChecklistRequests = (user) =>
+  canApproveChecklistRequests(user) || canRejectChecklistRequests(user);
+const canBypassChecklistAdminApproval = (user) =>
+  isAdminRequester(user) || canApproveChecklistRequests(user);
+
+const mergeQueryFilters = (...filters) => {
+  const activeFilters = filters.filter(
+    (filter) => filter && typeof filter === "object" && Object.keys(filter).length
+  );
+
+  if (!activeFilters.length) return {};
+  if (activeFilters.length === 1) return activeFilters[0];
+  return { $and: activeFilters };
+};
+
+const getChecklistTransferAccessContext = async (access = {}) => {
+  const accessIsAll = isAllScope(access || {});
+
+  if (accessIsAll) {
+    return {
+      accessIsAll: true,
+      accessibleEmployeeIds: [],
+      scopedSiteIds: [],
+      hasScopedAccess: true,
+    };
+  }
+
+  const accessibleEmployeeIds = await resolveAccessibleEmployeeIds(access || {});
+  const scopedSiteIds = uniqueIdList(access?.scope?.siteIds);
+
+  return {
+    accessIsAll: false,
+    accessibleEmployeeIds,
+    scopedSiteIds,
+    hasScopedAccess: Boolean(accessibleEmployeeIds.length || scopedSiteIds.length),
+  };
+};
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -363,15 +414,21 @@ const employeeHasDepartment = (employee, departmentId) =>
     (department) => String(department?._id || department) === String(departmentId)
   );
 
-const getEmployeeTransferSiteIds = (employee, restrictedSiteId = "") =>
-  normalizeIdList(employee?.sites).filter(
-    (siteId) => !restrictedSiteId || String(siteId) === String(restrictedSiteId)
+const getEmployeeTransferSiteIds = (employee, allowedSiteIds = []) => {
+  const normalizedAllowedSiteIds = normalizeIdList(
+    Array.isArray(allowedSiteIds) ? allowedSiteIds : allowedSiteIds ? [allowedSiteIds] : []
   );
+
+  return normalizeIdList(employee?.sites).filter(
+    (siteId) =>
+      !normalizedAllowedSiteIds.length || normalizedAllowedSiteIds.includes(String(siteId))
+  );
+};
 
 const getEmployeeTransferDepartmentIds = (employee) => normalizeIdList(employee?.department);
 
-const getSharedEmployeeSiteIds = (fromEmployee, toEmployee, restrictedSiteId = "") => {
-  const fromSiteIds = getEmployeeTransferSiteIds(fromEmployee, restrictedSiteId);
+const getSharedEmployeeSiteIds = (fromEmployee, toEmployee, allowedSiteIds = []) => {
+  const fromSiteIds = getEmployeeTransferSiteIds(fromEmployee, allowedSiteIds);
   if (!fromSiteIds.length) return [];
 
   return fromSiteIds.filter((siteId) => employeeHasSite(toEmployee, siteId));
@@ -384,8 +441,8 @@ const getSharedEmployeeDepartmentIds = (fromEmployee, toEmployee) => {
   return fromDepartmentIds.filter((departmentId) => employeeHasDepartment(toEmployee, departmentId));
 };
 
-const mapChecklistTransferEmployee = (employee, restrictedSiteId = "") => {
-  const siteIds = getEmployeeTransferSiteIds(employee, restrictedSiteId);
+const mapChecklistTransferEmployee = (employee, allowedSiteIds = []) => {
+  const siteIds = getEmployeeTransferSiteIds(employee, allowedSiteIds);
   const departmentIds = getEmployeeTransferDepartmentIds(employee);
   const siteLabels = (employee?.sites || [])
     .filter((site) => siteIds.includes(normalizeText(site?._id || site)))
@@ -1035,6 +1092,7 @@ const getPendingTransferRequestConflict = async (checklistIds = [], excludedRequ
 const loadPermanentTransferContext = async ({
   body,
   requesterUser = null,
+  requesterAccess = null,
   skipTemporaryTransferConflictCheck = false,
 }) => {
   const fromEmployeeId = normalizeText(body?.fromEmployeeId);
@@ -1070,24 +1128,39 @@ const loadPermanentTransferContext = async ({
     };
   }
 
-  const restrictedSiteId = getRestrictedChecklistSiteId(requesterUser);
+  const transferAccess = await getChecklistTransferAccessContext(requesterAccess || {});
+  const scopedEmployeeFilter = transferAccess.accessIsAll
+    ? {}
+    : transferAccess.accessibleEmployeeIds.length
+    ? { _id: { $in: transferAccess.accessibleEmployeeIds } }
+    : { _id: null };
+  const scopedSiteFilter = transferAccess.scopedSiteIds.length
+    ? { sites: { $in: transferAccess.scopedSiteIds } }
+    : {};
+  const checklistScopeFilter = await buildChecklistMasterScopeFilter(requesterAccess || {});
   const [fromEmployee, toEmployee] = await Promise.all([
     Employee.findOne(
-      {
-        _id: fromEmployeeId,
-        ...(restrictedSiteId ? { sites: restrictedSiteId } : {}),
-      },
+      mergeQueryFilters(
+        {
+          _id: fromEmployeeId,
+        },
+        scopedEmployeeFilter,
+        scopedSiteFilter
+      ),
       "employeeCode employeeName email isActive sites department"
     )
       .populate("sites", "name companyName")
       .populate("department", "name")
       .lean(),
     Employee.findOne(
-      {
-        _id: toEmployeeId,
-        isActive: true,
-        ...(restrictedSiteId ? { sites: restrictedSiteId } : {}),
-      },
+      mergeQueryFilters(
+        {
+          _id: toEmployeeId,
+          isActive: true,
+        },
+        scopedEmployeeFilter,
+        scopedSiteFilter
+      ),
       "employeeCode employeeName email isActive sites department"
     )
       .populate("sites", "name companyName")
@@ -1106,7 +1179,11 @@ const loadPermanentTransferContext = async ({
     };
   }
 
-  const sharedSiteIds = getSharedEmployeeSiteIds(fromEmployee, toEmployee, restrictedSiteId);
+  const sharedSiteIds = getSharedEmployeeSiteIds(
+    fromEmployee,
+    toEmployee,
+    transferAccess.scopedSiteIds
+  );
   const sharedDepartmentIds = getSharedEmployeeDepartmentIds(fromEmployee, toEmployee);
 
   if (!sharedSiteIds.length) {
@@ -1125,11 +1202,13 @@ const loadPermanentTransferContext = async ({
   }
 
   const selectedChecklists = await Checklist.find(
-    {
-      _id: { $in: uniqueChecklistIds },
-      assignedToEmployee: fromEmployeeId,
-      ...(restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}),
-    },
+    mergeQueryFilters(
+      {
+        _id: { $in: uniqueChecklistIds },
+        assignedToEmployee: fromEmployeeId,
+      },
+      checklistScopeFilter
+    ),
     "checklistNumber checklistName employeeAssignedSite"
   )
     .populate("employeeAssignedSite", "name companyName")
@@ -1260,10 +1339,15 @@ const applyPermanentTransferContext = async ({ actorUser, context }) => {
   };
 };
 
-const loadTemporaryTransferContext = async ({ body, requesterUser = null }) => {
+const loadTemporaryTransferContext = async ({
+  body,
+  requesterUser = null,
+  requesterAccess = null,
+}) => {
   const transferContext = await loadPermanentTransferContext({
     body,
     requesterUser,
+    requesterAccess,
     skipTemporaryTransferConflictCheck: true,
   });
 
@@ -2028,13 +2112,15 @@ const getChecklistTaskMarkSummary = (task = {}) => {
 
 const formatReportMarkValue = (value) => {
   const normalizedValue = roundMarkValue(value);
-  return normalizedValue === null ? "-" : reportMarkFormatter.format(normalizedValue);
+  return normalizedValue === null
+    ? reportMarkFormatter.format(0)
+    : reportMarkFormatter.format(normalizedValue);
 };
 
 const formatReportMarkAdjustment = (value) => {
   const normalizedValue = roundMarkValue(value);
 
-  if (normalizedValue === null) return "-";
+  if (normalizedValue === null) return formatReportMarkValue(0);
   if (normalizedValue > 0) return `+${formatReportMarkValue(normalizedValue)}`;
   if (normalizedValue < 0) return `-${formatReportMarkValue(Math.abs(normalizedValue))}`;
   return formatReportMarkValue(0);
@@ -2565,11 +2651,11 @@ exports.getChecklists = async (req, res) => {
     }
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
-    const filter = getChecklistFilters(req.query);
-
-    if (restrictedSiteId) {
-      filter.employeeAssignedSite = restrictedSiteId;
-    }
+    const filter = mergeQueryFilters(
+      getChecklistFilters(req.query),
+      await buildChecklistMasterScopeFilter(req.access || {}),
+      restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+    );
 
     const checklists = await Checklist.find(filter)
       .populate(checklistPopulateQuery)
@@ -2626,10 +2712,13 @@ exports.getChecklistById = async (req, res) => {
     }
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
-    const checklist = await Checklist.findOne({
-      _id: req.params.id,
-      ...(restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}),
-    }).populate(checklistPopulateQuery);
+    const checklist = await Checklist.findOne(
+      mergeQueryFilters(
+        { _id: req.params.id },
+        await buildChecklistMasterScopeFilter(req.access || {}),
+        restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+      )
+    ).populate(checklistPopulateQuery);
 
     if (!checklist) {
       return res.status(404).json({ message: "Checklist master not found" });
@@ -2659,7 +2748,7 @@ exports.createChecklist = async (req, res) => {
         .json({ message: validationResult.message });
     }
 
-    if (!isAdminRequester(req.user)) {
+    if (!canBypassChecklistAdminApproval(req.user)) {
       const nextChecklistNumber = await getPendingAwareChecklistNumber(
         validationResult.payload?.employeeAssignedSite
       );
@@ -2747,7 +2836,7 @@ exports.updateChecklist = async (req, res) => {
         .json({ message: validationResult.message });
     }
 
-    if (!isAdminRequester(req.user)) {
+    if (!canBypassChecklistAdminApproval(req.user)) {
       const existingPendingEditRequest = await ChecklistAdminRequest.findOne(
         {
           moduleKey: CHECKLIST_REQUEST_MODULE_KEYS.checklistMaster,
@@ -2846,10 +2935,13 @@ exports.deleteChecklist = async (req, res) => {
     }
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
-    const checklist = await Checklist.findOneAndDelete({
-      _id: req.params.id,
-      ...(restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}),
-    });
+    const checklist = await Checklist.findOneAndDelete(
+      mergeQueryFilters(
+        { _id: req.params.id },
+        await buildChecklistMasterScopeFilter(req.access || {}),
+        restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+      )
+    );
 
     if (!checklist) {
       return res.status(404).json({ message: "Checklist master not found" });
@@ -2885,10 +2977,11 @@ exports.bulkDeleteChecklists = async (req, res) => {
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
     const existingChecklists = await Checklist.find(
-      {
-        _id: { $in: uniqueChecklistIds },
-        ...(restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}),
-      },
+      mergeQueryFilters(
+        { _id: { $in: uniqueChecklistIds } },
+        await buildChecklistMasterScopeFilter(req.access || {}),
+        restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+      ),
       "_id"
     ).lean();
 
@@ -2898,10 +2991,13 @@ exports.bulkDeleteChecklists = async (req, res) => {
 
     const existingChecklistIds = existingChecklists.map((checklist) => checklist._id);
 
-    await Checklist.deleteMany({
-      _id: { $in: existingChecklistIds },
-      ...(restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}),
-    });
+    await Checklist.deleteMany(
+      mergeQueryFilters(
+        { _id: { $in: existingChecklistIds } },
+        await buildChecklistMasterScopeFilter(req.access || {}),
+        restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+      )
+    );
     await ChecklistTask.deleteMany({ checklist: { $in: existingChecklistIds } });
 
     return res.json({
@@ -2921,11 +3017,11 @@ exports.exportChecklistsExcel = async (req, res) => {
     }
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
-    const filter = getChecklistFilters(req.query);
-
-    if (restrictedSiteId) {
-      filter.employeeAssignedSite = restrictedSiteId;
-    }
+    const filter = mergeQueryFilters(
+      getChecklistFilters(req.query),
+      await buildChecklistMasterScopeFilter(req.access || {}),
+      restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+    );
 
     const checklists = await Checklist.find(filter)
       .populate(checklistPopulateQuery)
@@ -3088,7 +3184,10 @@ exports.importChecklistsExcel = async (req, res) => {
     }
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
-    const siteFilter = restrictedSiteId ? { _id: restrictedSiteId } : {};
+    const siteFilter = mergeQueryFilters(
+      restrictedSiteId ? { _id: restrictedSiteId } : {},
+      req.access?.scope?.siteIds?.length ? { _id: { $in: req.access.scope.siteIds } } : {}
+    );
 
     const [sites, employees, checklists] = await Promise.all([
       Site.find(siteFilter, "name companyName").lean(),
@@ -3100,7 +3199,10 @@ exports.importChecklistsExcel = async (req, res) => {
         "_id employeeCode employeeName email superiorEmployee sites"
       ).lean(),
       Checklist.find(
-        restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {},
+        mergeQueryFilters(
+          restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {},
+          await buildChecklistMasterScopeFilter(req.access || {})
+        ),
         "_id checklistNumber checklistName employeeAssignedSite"
       ).lean(),
     ]);
@@ -3332,8 +3434,8 @@ exports.importChecklistsExcel = async (req, res) => {
 
 exports.getChecklistTransferChecklists = async (req, res) => {
   try {
-    if (!hasChecklistMasterAccess(req.user)) {
-      return res.status(403).json({ message: "Checklist Master access is required" });
+    if (!canViewChecklistTransfer(req.user)) {
+      return res.status(403).json({ message: "Checklist Transfer access is required" });
     }
 
     const fromEmployeeId = normalizeText(req.query.fromEmployeeId);
@@ -3341,12 +3443,22 @@ exports.getChecklistTransferChecklists = async (req, res) => {
       return res.status(400).json({ message: "Select a valid From Employee" });
     }
 
-    const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
+    const transferAccess = await getChecklistTransferAccessContext(req.access || {});
+    const scopedEmployeeFilter = transferAccess.accessIsAll
+      ? {}
+      : transferAccess.accessibleEmployeeIds.length
+      ? { _id: { $in: transferAccess.accessibleEmployeeIds } }
+      : { _id: null };
+    const scopedSiteFilter = transferAccess.scopedSiteIds.length
+      ? { sites: { $in: transferAccess.scopedSiteIds } }
+      : {};
+    const checklistScopeFilter = await buildChecklistMasterScopeFilter(req.access || {});
     const fromEmployee = await Employee.findOne(
-      {
-        _id: fromEmployeeId,
-        ...(restrictedSiteId ? { sites: restrictedSiteId } : {}),
-      },
+      mergeQueryFilters(
+        { _id: fromEmployeeId },
+        scopedEmployeeFilter,
+        scopedSiteFilter
+      ),
       "employeeCode employeeName email isActive sites department"
     )
       .populate("sites", "name companyName")
@@ -3357,18 +3469,25 @@ exports.getChecklistTransferChecklists = async (req, res) => {
       return res.status(404).json({ message: "From Employee was not found" });
     }
 
-    const fromEmployeeSiteIds = getEmployeeTransferSiteIds(fromEmployee, restrictedSiteId);
+    const fromEmployeeSiteIds = getEmployeeTransferSiteIds(
+      fromEmployee,
+      transferAccess.scopedSiteIds
+    );
     const fromEmployeeDepartmentIds = getEmployeeTransferDepartmentIds(fromEmployee);
 
     const eligibleToEmployees =
       fromEmployeeSiteIds.length && fromEmployeeDepartmentIds.length
         ? await Employee.find(
-            {
-              _id: { $ne: fromEmployeeId },
-              isActive: true,
-              sites: { $in: fromEmployeeSiteIds },
-              department: { $in: fromEmployeeDepartmentIds },
-            },
+            mergeQueryFilters(
+              {
+                _id: { $ne: fromEmployeeId },
+                isActive: true,
+                sites: { $in: fromEmployeeSiteIds },
+                department: { $in: fromEmployeeDepartmentIds },
+              },
+              scopedEmployeeFilter,
+              scopedSiteFilter
+            ),
             "employeeCode employeeName email isActive sites department"
           )
             .populate("sites", "name companyName")
@@ -3378,10 +3497,12 @@ exports.getChecklistTransferChecklists = async (req, res) => {
         : [];
 
     const checklists = await Checklist.find(
-      {
+      mergeQueryFilters(
+        {
         assignedToEmployee: fromEmployeeId,
-        ...(restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}),
-      },
+        },
+        checklistScopeFilter
+      ),
       [
         "checklistNumber",
         "checklistName",
@@ -3401,9 +3522,9 @@ exports.getChecklistTransferChecklists = async (req, res) => {
       .lean();
 
     return res.json({
-      employee: mapChecklistTransferEmployee(fromEmployee, restrictedSiteId),
+      employee: mapChecklistTransferEmployee(fromEmployee, transferAccess.scopedSiteIds),
       toEmployees: eligibleToEmployees.map((employee) =>
-        mapChecklistTransferEmployee(employee, restrictedSiteId)
+        mapChecklistTransferEmployee(employee, transferAccess.scopedSiteIds)
       ),
       count: checklists.length,
       checklists,
@@ -3416,13 +3537,14 @@ exports.getChecklistTransferChecklists = async (req, res) => {
 
 exports.createPermanentChecklistTransfer = async (req, res) => {
   try {
-    if (!hasChecklistMasterAccess(req.user)) {
-      return res.status(403).json({ message: "Checklist Master access is required" });
+    if (!hasModulePermission(req.user?.permissions, "checklist_transfer", "transfer")) {
+      return res.status(403).json({ message: "Checklist Transfer permission is required" });
     }
 
     const transferContext = await loadPermanentTransferContext({
       body: req.body,
       requesterUser: req.user,
+      requesterAccess: req.access,
     });
 
     if (transferContext?.message) {
@@ -3431,7 +3553,7 @@ exports.createPermanentChecklistTransfer = async (req, res) => {
         .json({ message: transferContext.message });
     }
 
-    if (!isAdminRequester(req.user)) {
+    if (!canBypassChecklistAdminApproval(req.user)) {
       const pendingTransferConflict = await getPendingTransferRequestConflict(
         transferContext.payload?.checklistObjectIds
       );
@@ -3480,13 +3602,14 @@ exports.createPermanentChecklistTransfer = async (req, res) => {
 
 exports.createTemporaryChecklistTransfer = async (req, res) => {
   try {
-    if (!hasChecklistMasterAccess(req.user)) {
-      return res.status(403).json({ message: "Checklist Master access is required" });
+    if (!hasModulePermission(req.user?.permissions, "checklist_transfer", "transfer")) {
+      return res.status(403).json({ message: "Checklist Transfer permission is required" });
     }
 
     const transferContext = await loadTemporaryTransferContext({
       body: req.body,
       requesterUser: req.user,
+      requesterAccess: req.access,
     });
 
     if (transferContext?.message) {
@@ -3495,7 +3618,7 @@ exports.createTemporaryChecklistTransfer = async (req, res) => {
         .json({ message: transferContext.message });
     }
 
-    if (!isAdminRequester(req.user)) {
+    if (!canBypassChecklistAdminApproval(req.user)) {
       const pendingTransferConflict = await getPendingTransferRequestConflict(
         transferContext.payload?.checklistObjectIds
       );
@@ -3547,13 +3670,27 @@ exports.createTemporaryChecklistTransfer = async (req, res) => {
 
 exports.getChecklistTransferHistory = async (req, res) => {
   try {
-    if (!hasChecklistMasterAccess(req.user)) {
-      return res.status(403).json({ message: "Checklist Master access is required" });
+    if (!canViewChecklistTransfer(req.user)) {
+      return res.status(403).json({ message: "Checklist Transfer access is required" });
     }
 
-    const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
+    const transferAccess = await getChecklistTransferAccessContext(req.access || {});
     const historyRows = await ChecklistTransferHistory.find(
-      restrictedSiteId ? { siteIds: restrictedSiteId } : {}
+      mergeQueryFilters(
+        transferAccess.scopedSiteIds.length
+          ? { siteIds: { $in: transferAccess.scopedSiteIds } }
+          : {},
+        transferAccess.accessibleEmployeeIds.length
+          ? {
+              $or: [
+                { fromEmployee: { $in: transferAccess.accessibleEmployeeIds } },
+                { toEmployee: { $in: transferAccess.accessibleEmployeeIds } },
+              ],
+            }
+          : !transferAccess.accessIsAll && !transferAccess.hasScopedAccess
+          ? { _id: null }
+          : {}
+      )
     )
       .populate(checklistTransferHistoryPopulateQuery)
       .sort({ transferredAt: -1, createdAt: -1 })
@@ -3601,8 +3738,8 @@ const mapChecklistAdminRequestSummaryRow = (request) => {
 
 exports.getChecklistAdminRequests = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res.status(403).json({ message: "Only admins can view checklist admin approvals" });
+    if (!canReviewChecklistRequests(req.user)) {
+      return res.status(403).json({ message: "Checklist approval review permission is required" });
     }
 
     const search = normalizeText(req.query?.search);
@@ -3645,8 +3782,8 @@ exports.getChecklistAdminRequests = async (req, res) => {
 
 exports.getChecklistAdminRequestById = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res.status(403).json({ message: "Only admins can view checklist admin approvals" });
+    if (!canReviewChecklistRequests(req.user)) {
+      return res.status(403).json({ message: "Checklist approval review permission is required" });
     }
 
     const request = await ChecklistAdminRequest.findById(req.params.id).lean();
@@ -3670,8 +3807,8 @@ exports.getChecklistAdminRequestById = async (req, res) => {
 
 exports.approveChecklistAdminRequest = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res.status(403).json({ message: "Only admins can approve checklist requests" });
+    if (!canApproveChecklistRequests(req.user)) {
+      return res.status(403).json({ message: "Checklist approval permission is required" });
     }
 
     const request = await ChecklistAdminRequest.findById(req.params.id);
@@ -3710,8 +3847,8 @@ exports.approveChecklistAdminRequest = async (req, res) => {
 
 exports.rejectChecklistAdminRequest = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res.status(403).json({ message: "Only admins can reject checklist requests" });
+    if (!canRejectChecklistRequests(req.user)) {
+      return res.status(403).json({ message: "Checklist rejection permission is required" });
     }
 
     const request = await ChecklistAdminRequest.findById(req.params.id);
@@ -4018,8 +4155,8 @@ exports.decideChecklistTask = async (req, res) => {
 
 exports.getChecklistTaskReport = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res.status(403).json({ message: "Only admins can view checklist task reports" });
+    if (!isAdminRequester(req.user) && !req.user?.permissions?.reports?.canReportView) {
+      return res.status(403).json({ message: "Report view permission is required" });
     }
 
     const reportResult = await loadChecklistTaskReportRows(req.query);
@@ -4030,7 +4167,15 @@ exports.getChecklistTaskReport = async (req, res) => {
         .json({ message: reportResult.error });
     }
 
-    return res.json(reportResult.tasks || []);
+    const tasks = isAllScope(req.access || {})
+      ? reportResult.tasks || []
+      : await filterRowsByAccessibleEmployees(
+          reportResult.tasks || [],
+          req.access || {},
+          (task) => task?.assignedEmployee?._id || task?.assignedEmployee
+        );
+
+    return res.json(tasks);
   } catch (err) {
     console.error("GET CHECKLIST TASK REPORT ERROR:", err);
     return res.status(500).json({ message: "Failed to load checklist task report" });
@@ -4039,10 +4184,8 @@ exports.getChecklistTaskReport = async (req, res) => {
 
 exports.exportChecklistTaskReportExcel = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res
-        .status(403)
-        .json({ message: "Only admins can export checklist task reports" });
+    if (!isAdminRequester(req.user) && !req.user?.permissions?.reports?.canExport) {
+      return res.status(403).json({ message: "Report export permission is required" });
     }
 
     const reportResult = await loadChecklistTaskReportRows(req.query);
@@ -4065,7 +4208,15 @@ exports.exportChecklistTaskReportExcel = async (req, res) => {
       to: { row: 1, column: checklistTaskReportExcelColumns.length },
     };
 
-    (reportResult.tasks || []).forEach((task, index) => {
+    const scopedTasks = isAllScope(req.access || {})
+      ? reportResult.tasks || []
+      : await filterRowsByAccessibleEmployees(
+          reportResult.tasks || [],
+          req.access || {},
+          (task) => task?.assignedEmployee?._id || task?.assignedEmployee
+        );
+
+    scopedTasks.forEach((task, index) => {
       worksheet.addRow(buildChecklistTaskReportRow(task, index));
     });
 
@@ -4090,10 +4241,8 @@ exports.exportChecklistTaskReportExcel = async (req, res) => {
 
 exports.exportChecklistTaskReportPdf = async (req, res) => {
   try {
-    if (!isAdminRequester(req.user)) {
-      return res
-        .status(403)
-        .json({ message: "Only admins can export checklist task reports" });
+    if (!isAdminRequester(req.user) && !req.user?.permissions?.reports?.canExport) {
+      return res.status(403).json({ message: "Report export permission is required" });
     }
 
     const reportResult = await loadChecklistTaskReportRows(req.query);
@@ -4104,7 +4253,15 @@ exports.exportChecklistTaskReportPdf = async (req, res) => {
         .json({ message: reportResult.error });
     }
 
-    const reportRows = (reportResult.tasks || []).map((task, index) =>
+    const scopedTasks = isAllScope(req.access || {})
+      ? reportResult.tasks || []
+      : await filterRowsByAccessibleEmployees(
+          reportResult.tasks || [],
+          req.access || {},
+          (task) => task?.assignedEmployee?._id || task?.assignedEmployee
+        );
+
+    const reportRows = scopedTasks.map((task, index) =>
       buildChecklistTaskReportRow(task, index)
     );
     const pdfBuffer = buildSimplePdfBuffer(

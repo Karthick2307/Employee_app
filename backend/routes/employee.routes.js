@@ -2,18 +2,27 @@ const express = require("express");
 const router = express.Router();
 const controller = require("../controllers/employee.controller");
 const upload = require("../middleware/upload");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth } = require("../middleware/auth");
+const { requireAnyPermission, requirePermission } = require("../middleware/permissions");
 
 /* ================= PUBLIC (LOGGED-IN USERS) ================= */
 
 // ✅ GET ALL EMPLOYEES (TABLE DATA)
-router.get("/", auth, controller.getEmployees);
+router.get("/", auth, requirePermission("employee_master", "view"), controller.getEmployees);
 
 // ✅ EXPORT EXCEL (MUST BE BEFORE :id)
-router.get("/export/excel", auth, isAdmin, controller.exportEmployeesExcel);
+router.get("/export/excel", auth, requirePermission("employee_master", "export"), controller.exportEmployeesExcel);
 
 // ✅ GET SINGLE EMPLOYEE
-router.get("/:id", auth, controller.getEmployeeById);
+router.get(
+  "/:id",
+  auth,
+  requireAnyPermission([
+    { moduleKey: "employee_master", actionKey: "view" },
+    { moduleKey: "own_profile", actionKey: "view" },
+  ]),
+  controller.getEmployeeById
+);
 
 /* ================= ADMIN ONLY ================= */
 
@@ -21,7 +30,7 @@ router.get("/:id", auth, controller.getEmployeeById);
 router.post(
   "/",
   auth,
-  isAdmin,
+  requirePermission("employee_master", "add"),
   upload.single("photo"),
   controller.createEmployee
 );
@@ -30,16 +39,16 @@ router.post(
 router.put(
   "/:id",
   auth,
-  isAdmin,
+  requirePermission("employee_master", "edit"),
   upload.single("photo"),
   controller.updateEmployee
 );
 
 // ✅ DELETE EMPLOYEE
-router.post("/bulk-delete", auth, isAdmin, controller.bulkDeleteEmployees);
-router.delete("/:id", auth, isAdmin, controller.deleteEmployee);
+router.post("/bulk-delete", auth, requirePermission("employee_master", "delete"), controller.bulkDeleteEmployees);
+router.delete("/:id", auth, requirePermission("employee_master", "delete"), controller.deleteEmployee);
 
 // ✅ STATUS TOGGLE
-router.patch("/:id/status", auth, isAdmin, controller.toggleEmployeeStatus);
+router.patch("/:id/status", auth, requirePermission("employee_master", "status_update"), controller.toggleEmployeeStatus);
 
 module.exports = router;

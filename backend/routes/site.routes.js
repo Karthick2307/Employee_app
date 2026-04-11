@@ -2,25 +2,12 @@ const router = require("express").Router();
 const Site = require("../models/Site");
 const Company = require("../models/Company");
 const Employee = require("../models/Employee");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permissions");
+const { buildSiteScopeFilter } = require("../services/accessScope.service");
 
 const MAX_SUB_LEVELS = 4;
 const normalizeName = (value) => String(value || "").trim();
-const isValidObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(normalizeName(value));
-const getRequesterRole = (user) =>
-  String(user?.role || "")
-    .trim()
-    .toLowerCase();
-const getChecklistUserSiteId = (user) => {
-  const role = getRequesterRole(user);
-  const siteId = normalizeName(user?.siteId);
-
-  if (role === "admin" || role === "employee") return "";
-  if (!(role === "user" || Boolean(user?.checklistMasterAccess))) return "";
-  if (!isValidObjectId(siteId)) return "";
-
-  return siteId;
-};
 const parseNameList = (value) => {
   const raw =
     Array.isArray(value)
@@ -160,19 +147,29 @@ const findSubSiteNode = (rows = [], subId, level = 1) => {
   return null;
 };
 
-router.get("/", auth, async (req, res) => {
+const canAccessScopedSite = async (req, siteId) => {
+  const scopeFilter = await buildSiteScopeFilter(req.access || {});
+
+  if (!scopeFilter?._id?.$in) {
+    return scopeFilter?._id !== null;
+  }
+
+  return scopeFilter._id.$in.some((value) => String(value) === String(siteId));
+};
+
+router.get("/", auth, requirePermission("site_master", "view"), async (req, res) => {
   try {
-    const restrictedSiteId = getChecklistUserSiteId(req.user);
-    const rows = await Site.find(
-      restrictedSiteId ? { _id: restrictedSiteId } : {}
-    ).sort({ companyName: 1, name: 1 });
+    const rows = await Site.find(await buildSiteScopeFilter(req.access || {})).sort({
+      companyName: 1,
+      name: 1,
+    });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load sites" });
   }
 });
 
-router.post("/", auth, isAdmin, async (req, res) => {
+router.post("/", auth, requirePermission("site_master", "add"), async (req, res) => {
   try {
     const companyName = normalizeName(req.body.companyName);
     const { names, hasBulkPayload } = parseNamesPayload(req.body);
@@ -234,8 +231,12 @@ router.post("/", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.put("/:id", auth, isAdmin, async (req, res) => {
+router.put("/:id", auth, requirePermission("site_master", "edit"), async (req, res) => {
   try {
+    if (!(await canAccessScopedSite(req, req.params.id))) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     const companyName = normalizeName(req.body.companyName);
     const name = normalizeName(req.body.name);
     const { headNames, error: headError } = await resolveHeadNames({
@@ -274,8 +275,12 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.get("/:id/sub-sites", auth, async (req, res) => {
+router.get("/:id/sub-sites", auth, requirePermission("site_master", "view"), async (req, res) => {
   try {
+    if (!(await canAccessScopedSite(req, req.params.id))) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     const row = await Site.findById(req.params.id, "subSites");
     if (!row) return res.status(404).json({ message: "Site not found" });
 
@@ -292,8 +297,12 @@ router.get("/:id/sub-sites", auth, async (req, res) => {
   }
 });
 
-router.post("/:id/sub-sites", auth, isAdmin, async (req, res) => {
+router.post("/:id/sub-sites", auth, requirePermission("site_master", "add"), async (req, res) => {
   try {
+    if (!(await canAccessScopedSite(req, req.params.id))) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     const { names, hasBulkPayload } = parseNamesPayload(req.body);
     const { headNames, error: headError } = await resolveHeadNames({
       headEmployeeIds: req.body.headEmployeeIds,
@@ -355,8 +364,12 @@ router.post("/:id/sub-sites", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.put("/:id/sub-sites/:subId", auth, isAdmin, async (req, res) => {
+router.put("/:id/sub-sites/:subId", auth, requirePermission("site_master", "edit"), async (req, res) => {
   try {
+    if (!(await canAccessScopedSite(req, req.params.id))) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     const name = normalizeName(req.body.name);
     const { headNames, error: headError } = await resolveHeadNames({
       headEmployeeIds: req.body.headEmployeeIds,
@@ -385,8 +398,12 @@ router.put("/:id/sub-sites/:subId", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.delete("/:id/sub-sites/:subId", auth, isAdmin, async (req, res) => {
+router.delete("/:id/sub-sites/:subId", auth, requirePermission("site_master", "delete"), async (req, res) => {
   try {
+    if (!(await canAccessScopedSite(req, req.params.id))) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     const row = await Site.findById(req.params.id);
     if (!row) return res.status(404).json({ message: "Site not found" });
 
@@ -401,8 +418,12 @@ router.delete("/:id/sub-sites/:subId", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.delete("/:id", auth, isAdmin, async (req, res) => {
+router.delete("/:id", auth, requirePermission("site_master", "delete"), async (req, res) => {
   try {
+    if (!(await canAccessScopedSite(req, req.params.id))) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     const deleted = await Site.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: "Site not found" });
     res.json({ success: true });

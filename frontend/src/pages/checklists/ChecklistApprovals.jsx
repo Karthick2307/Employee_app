@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import api from "../../api/axios";
+import { usePermissions } from "../../context/PermissionContext";
 import {
   formatApprovalTypeLabel,
   formatDateTime,
@@ -16,11 +17,9 @@ import {
   isNilChecklistTask,
 } from "../../utils/checklistDisplay";
 
-const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
-
 export default function ChecklistApprovals() {
-  const user = getUser();
-  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
+  const { can, getHomePath } = usePermissions();
+  const backPath = can("assigned_checklists", "view") ? "/checklists" : getHomePath();
 
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
@@ -46,10 +45,6 @@ export default function ChecklistApprovals() {
     void loadApprovals();
   }, [search]);
 
-  if (isAdmin) {
-    return <Navigate to="/checklists" replace />;
-  }
-
   const submittedCount = rows.filter((row) =>
     ["submitted", "nil_for_approval"].includes(String(row.status || ""))
   ).length;
@@ -68,8 +63,8 @@ export default function ChecklistApprovals() {
             </div>
           </div>
 
-          <Link to="/checklists" className="btn btn-outline-secondary">
-            Back to My Tasks
+          <Link to={backPath} className="btn btn-outline-secondary">
+            {backPath === "/checklists" ? "Back to My Tasks" : "Back"}
           </Link>
         </div>
 

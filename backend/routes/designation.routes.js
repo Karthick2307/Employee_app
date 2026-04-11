@@ -1,8 +1,9 @@
 const router = require("express").Router();
 const Designation = require("../models/Designation");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permissions");
 
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, requirePermission("designation_master", "view"), async (req, res) => {
   try {
     const rows = await Designation.find().sort({ name: 1 });
     res.json(rows);
@@ -11,7 +12,7 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
-router.post("/", auth, isAdmin, async (req, res) => {
+router.post("/", auth, requirePermission("designation_master", "add"), async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     if (!name) return res.status(400).json({ message: "Designation name is required" });
@@ -26,7 +27,7 @@ router.post("/", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.put("/:id", auth, isAdmin, async (req, res) => {
+router.put("/:id", auth, requirePermission("designation_master", "edit"), async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     if (!name) return res.status(400).json({ message: "Designation name is required" });
@@ -47,7 +48,7 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.delete("/:id", auth, isAdmin, async (req, res) => {
+router.delete("/:id", auth, requirePermission("designation_master", "delete"), async (req, res) => {
   try {
     const deleted = await Designation.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: "Designation not found" });

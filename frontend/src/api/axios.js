@@ -1,8 +1,31 @@
 import axios from "axios";
 import { clearPostLoginWelcomeSession } from "../utils/postLoginWelcome";
 
+const trimTrailingSlash = (value) => String(value || "").trim().replace(/\/+$/, "");
+
+const getApiBaseUrl = () => {
+  const configuredBaseUrl = trimTrailingSlash(import.meta.env.VITE_API_BASE_URL);
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  // Keep API requests same-origin by default.
+  // - Vite dev: routed to backend via vite proxy
+  // - IIS/production: routed via /api reverse proxy
+  if (typeof window !== "undefined") {
+    return "/api";
+  }
+
+  // Fallback for non-browser usage.
+  if (import.meta.env.DEV) {
+    return "http://127.0.0.1:5000/api";
+  }
+
+  return "/api";
+};
+
 const api = axios.create({
-  baseURL: "http://localhost:5000/api",
+  baseURL: getApiBaseUrl(),
   headers: {
     "Content-Type": "application/json",
   },

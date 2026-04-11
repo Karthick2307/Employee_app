@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../../api/axios";
+import { usePermissions } from "../../context/PermissionContext";
 import {
   formatApprovalLabel,
   formatChecklistDependencyLabel,
@@ -20,13 +21,9 @@ const getChecklistSiteName = (site) => String(site?.name || "").trim();
 
 export default function ChecklistView() {
   const { id } = useParams();
-  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
-  const currentUserRole = String(currentUser?.role || "").trim().toLowerCase();
-  const isAdminChecklistUser = currentUserRole === "admin";
-  const canEditChecklist =
-    currentUserRole === "admin" ||
-    currentUserRole === "user" ||
-    Boolean(currentUser?.checklistMasterAccess);
+  const { can } = usePermissions();
+  const canEditChecklist = can("checklist_master", "edit");
+  const canApplyChecklistChangesDirectly = can("checklist_master", "approve");
   const [loading, setLoading] = useState(true);
   const [checklist, setChecklist] = useState(null);
   const markConfig = getChecklistMarkConfig(checklist || {});
@@ -80,7 +77,7 @@ export default function ChecklistView() {
           </Link>
           {canEditChecklist ? (
             <Link className="btn btn-warning" to={`/checklists/edit/${checklist._id}`}>
-              {isAdminChecklistUser ? "Edit" : "Request Edit"}
+              {canApplyChecklistChangesDirectly ? "Edit" : "Request Edit"}
             </Link>
           ) : null}
         </div>

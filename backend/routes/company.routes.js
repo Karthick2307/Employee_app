@@ -2,7 +2,9 @@ const router = require("express").Router();
 const Company = require("../models/Company");
 const Site = require("../models/Site");
 const Employee = require("../models/Employee");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permissions");
+const { buildCompanyScopeFilter } = require("../services/accessScope.service");
 
 const normalizeName = (value) => String(value || "").trim();
 const parseNameList = (value) => {
@@ -84,16 +86,16 @@ const resolveDirectorNames = async ({ directorEmployeeIds, fallbackDirectorNames
   return { directorNames };
 };
 
-router.get("/", auth, async (req, res) => {
+router.get("/", auth, requirePermission("company_master", "view"), async (req, res) => {
   try {
-    const rows = await Company.find().sort({ name: 1 });
+    const rows = await Company.find(await buildCompanyScopeFilter(req.access || {})).sort({ name: 1 });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load companies" });
   }
 });
 
-router.post("/", auth, isAdmin, async (req, res) => {
+router.post("/", auth, requirePermission("company_master", "add"), async (req, res) => {
   try {
     const name = normalizeName(req.body.name);
     const { directorNames, error: directorError } = await resolveDirectorNames({
@@ -113,7 +115,7 @@ router.post("/", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.put("/:id", auth, isAdmin, async (req, res) => {
+router.put("/:id", auth, requirePermission("company_master", "edit"), async (req, res) => {
   try {
     const name = normalizeName(req.body.name);
     const { directorNames, error: directorError } = await resolveDirectorNames({
@@ -144,7 +146,7 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.delete("/:id", auth, isAdmin, async (req, res) => {
+router.delete("/:id", auth, requirePermission("company_master", "delete"), async (req, res) => {
   try {
     const existing = await Company.findById(req.params.id);
     if (!existing) return res.status(404).json({ message: "Company not found" });

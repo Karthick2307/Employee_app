@@ -7,12 +7,13 @@ const {
   updateUser,
   deleteUser,
 } = require("../controllers/auth.controller");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permissions");
 
 router.post("/login", login);
-router.get("/users", auth, isAdmin, getUsers);
-router.post("/users", auth, isAdmin, createUser);
-router.put("/users/:id", auth, isAdmin, updateUser);
-router.delete("/users/:id", auth, isAdmin, deleteUser);
+router.get("/users", auth, requirePermission("user_management", "view"), getUsers);
+router.post("/users", auth, requirePermission("user_management", "add"), createUser);
+router.put("/users/:id", auth, requirePermission("user_management", "edit"), updateUser);
+router.delete("/users/:id", auth, requirePermission("user_management", "delete"), deleteUser);
 
 module.exports = router;

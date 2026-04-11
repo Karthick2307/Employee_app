@@ -134,13 +134,13 @@ export const getChecklistMarkConfig = (value = {}) => {
 
 export const formatMarkValue = (value) => {
   const normalizedValue = roundMarkValue(value);
-  return normalizedValue === null ? "-" : markFormatter.format(normalizedValue);
+  return normalizedValue === null ? markFormatter.format(0) : markFormatter.format(normalizedValue);
 };
 
 export const formatMarkAdjustment = (value) => {
   const normalizedValue = roundMarkValue(value);
 
-  if (normalizedValue === null) return "-";
+  if (normalizedValue === null) return formatMarkValue(0);
   if (normalizedValue > 0) return `+${formatMarkValue(normalizedValue)}`;
   if (normalizedValue < 0) return `-${formatMarkValue(Math.abs(normalizedValue))}`;
   return formatMarkValue(0);

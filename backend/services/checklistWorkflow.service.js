@@ -1658,13 +1658,6 @@ const validateChecklistPayload = async ({ body, requesterSiteId = "" }) => {
     };
   }
 
-  if (!checklistItems.length) {
-    return {
-      message: "Add at least one task related question so the employee can submit an answer",
-      status: 400,
-    };
-  }
-
   const assignedEmployee = await Employee.findById(
     assignedToEmployee,
     "employeeCode employeeName superiorEmployee sites isActive"

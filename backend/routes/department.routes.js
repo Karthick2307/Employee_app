@@ -1,7 +1,9 @@
 const router = require("express").Router();
 const Department = require("../models/Department");
 const Employee = require("../models/Employee");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permissions");
+const { buildDepartmentScopeFilter } = require("../services/accessScope.service");
 
 const MAX_SUB_LEVELS = 4;
 const normalizeName = (value) => String(value || "").trim();
@@ -121,16 +123,28 @@ const findSubDepartmentNode = (rows = [], subId, level = 1) => {
   return null;
 };
 
-router.get("/", auth, async (req, res) => {
+const canAccessScopedDepartment = async (req, departmentId) => {
+  const scopeFilter = await buildDepartmentScopeFilter(req.access || {});
+
+  if (!scopeFilter?._id?.$in) {
+    return scopeFilter?._id !== null;
+  }
+
+  return scopeFilter._id.$in.some((value) => String(value) === String(departmentId));
+};
+
+router.get("/", auth, requirePermission("department_master", "view"), async (req, res) => {
   try {
-    const rows = await Department.find().sort({ name: 1 });
+    const rows = await Department.find(await buildDepartmentScopeFilter(req.access || {})).sort({
+      name: 1,
+    });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load departments" });
   }
 });
 
-router.post("/", auth, isAdmin, async (req, res) => {
+router.post("/", auth, requirePermission("department_master", "add"), async (req, res) => {
   try {
     const name = normalizeName(req.body.name);
     const { headNames, error: headError } = await resolveHeadNames({
@@ -159,8 +173,12 @@ router.post("/", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.put("/:id", auth, isAdmin, async (req, res) => {
+router.put("/:id", auth, requirePermission("department_master", "edit"), async (req, res) => {
   try {
+    if (!(await canAccessScopedDepartment(req, req.params.id))) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
     const name = normalizeName(req.body.name);
     const { headNames, error: headError } = await resolveHeadNames({
       headEmployeeIds: req.body.headEmployeeIds,
@@ -194,8 +212,12 @@ router.put("/:id", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.delete("/:id", auth, isAdmin, async (req, res) => {
+router.delete("/:id", auth, requirePermission("department_master", "delete"), async (req, res) => {
   try {
+    if (!(await canAccessScopedDepartment(req, req.params.id))) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
     const deleted = await Department.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: "Department not found" });
     res.json({ success: true });
@@ -204,8 +226,12 @@ router.delete("/:id", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.get("/:id/sub-departments", auth, async (req, res) => {
+router.get("/:id/sub-departments", auth, requirePermission("sub_department_master", "view"), async (req, res) => {
   try {
+    if (!(await canAccessScopedDepartment(req, req.params.id))) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
     const row = await Department.findById(req.params.id, "subDepartments");
     if (!row) return res.status(404).json({ message: "Department not found" });
 
@@ -222,8 +248,12 @@ router.get("/:id/sub-departments", auth, async (req, res) => {
   }
 });
 
-router.post("/:id/sub-departments", auth, isAdmin, async (req, res) => {
+router.post("/:id/sub-departments", auth, requirePermission("sub_department_master", "add"), async (req, res) => {
   try {
+    if (!(await canAccessScopedDepartment(req, req.params.id))) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
     const { names, hasBulkPayload } = parseSubDepartmentNames(req.body);
     const { headNames, error: headError } = await resolveHeadNames({
       headEmployeeIds: req.body.headEmployeeIds,
@@ -282,8 +312,12 @@ router.post("/:id/sub-departments", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.put("/:id/sub-departments/:subId", auth, isAdmin, async (req, res) => {
+router.put("/:id/sub-departments/:subId", auth, requirePermission("sub_department_master", "edit"), async (req, res) => {
   try {
+    if (!(await canAccessScopedDepartment(req, req.params.id))) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
     const name = normalizeName(req.body.name);
     const { headNames, error: headError } = await resolveHeadNames({
       headEmployeeIds: req.body.headEmployeeIds,
@@ -311,8 +345,12 @@ router.put("/:id/sub-departments/:subId", auth, isAdmin, async (req, res) => {
   }
 });
 
-router.delete("/:id/sub-departments/:subId", auth, isAdmin, async (req, res) => {
+router.delete("/:id/sub-departments/:subId", auth, requirePermission("sub_department_master", "delete"), async (req, res) => {
   try {
+    if (!(await canAccessScopedDepartment(req, req.params.id))) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
     const row = await Department.findById(req.params.id);
     if (!row) return res.status(404).json({ message: "Department not found" });
 

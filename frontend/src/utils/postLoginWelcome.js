@@ -21,12 +21,29 @@ export const getStoredUser = () => {
 
 export const getPostLoginDestination = (user = getStoredUser()) => {
   if (!user) return "/login";
+  if (user.homePath) return user.homePath;
+
+  if (
+    user.role === "admin" ||
+    user.isDefaultAdmin ||
+    user.roleKey === "main_admin"
+  ) {
+    return "/employees";
+  }
+
+  if (
+    user.role === "employee" ||
+    user.principalType === "employee" ||
+    user.roleKey === "employee"
+  ) {
+    return "/checklists";
+  }
 
   if (user.role === "user" || user.checklistMasterAccess) {
     return "/checklists";
   }
 
-  return "/dashboard-1";
+  return "/employees";
 };
 
 export const startPostLoginWelcomeSession = (sessionId = `login-${Date.now()}`) => {

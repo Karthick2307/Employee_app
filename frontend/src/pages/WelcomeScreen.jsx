@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import WelcomeCard from "../components/WelcomeCard";
 import welcomeBackground from "../images/welcome.jpg";
 import {
   dismissPostLoginWelcome,
@@ -17,6 +18,7 @@ const WELCOME_MESSAGES = [
   "Stay updated with your checklist tasks.",
   "Let's start your tasks.",
 ];
+const CONTINUE_DELAY_SECONDS = 10;
 
 const toSafeCount = (value) => {
   const parsedValue = Number(value);
@@ -95,6 +97,7 @@ export default function WelcomeScreen() {
   }));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [continueDelaySeconds, setContinueDelaySeconds] = useState(CONTINUE_DELAY_SECONDS);
 
   useEffect(() => {
     let active = true;
@@ -133,6 +136,20 @@ export default function WelcomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (continueDelaySeconds <= 0 || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setContinueDelaySeconds((currentValue) => Math.max(0, currentValue - 1));
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [continueDelaySeconds]);
+
   const sessionSeed = getPostLoginWelcomeSessionId();
   const motivationalMessages = useMemo(
     () =>
@@ -157,8 +174,13 @@ export default function WelcomeScreen() {
   const welcomeDescriptor = showDepartmentSummary
     ? "Lead your department schedule with clear visibility, better timing, and steady task completion."
     : "Stay on top of your checklist schedule and keep every task moving at the right time.";
+  const isContinueLocked = continueDelaySeconds > 0;
+  const continueButtonLabel = isContinueLocked
+    ? `Continue in ${continueDelaySeconds}s`
+    : "Continue";
 
   const handleContinue = () => {
+    if (isContinueLocked) return;
     dismissPostLoginWelcome();
     navigate(getPostLoginDestination(storedUser), { replace: true });
   };
@@ -169,38 +191,90 @@ export default function WelcomeScreen() {
         <img className="welcome-shell__photo" src={welcomeBackground} alt="" />
       </div>
 
-      <div className="welcome-card">
+      <WelcomeCard>
         <div className="welcome-card__masthead">
           <div className="welcome-card__intro">
-            <div className="welcome-card__eyebrow">Workspace Ready</div>
-            <h1 className="welcome-card__title">Hi, {summary.userName || "User"}</h1>
-            <div className="welcome-card__headline">Check Your Task Regularly</div>
+            {showDepartmentSummary ? (
+              <div className="welcome-card__status-row">
+                <span className="welcome-card__status-pill welcome-card__status-pill--focus">
+                  Department View
+                </span>
+              </div>
+            ) : null}
+            <h1 className="welcome-card__title">
+              <span className="welcome-card__title-greeting">Hi,</span>
+              <span className="welcome-card__title-name">{summary.userName || "User"}</span>
+            </h1>
+            <div className="welcome-card__headline">
+              <span className="welcome-card__headline-text">Today Update For You...</span>
+            </div>
             <p className="welcome-card__lead">{welcomeDescriptor}</p>
             <div className="welcome-card__countline">
-              Pending Your Task Count:{" "}
+              <span className="welcome-card__countline-label">Tasks waiting for you</span>
               <span className="welcome-card__count">
                 <CountUpNumber
                   key={`pending-countline-${personalPendingCount}`}
                   value={personalPendingCount}
                 />
-              </span>{" "}
-              {taskLabel}
+              </span>
+              <span className="welcome-card__countline-meta">{taskLabel} pending today</span>
             </div>
           </div>
 
           <div className="welcome-spotlight">
             <div className="welcome-spotlight__hero">
-              <div className="welcome-hourglass" aria-hidden="true">
-                <span className="welcome-hourglass__cap welcome-hourglass__cap--top" />
-                <span className="welcome-hourglass__cap welcome-hourglass__cap--bottom" />
-                <span className="welcome-hourglass__frame welcome-hourglass__frame--left" />
-                <span className="welcome-hourglass__frame welcome-hourglass__frame--right" />
-                <span className="welcome-hourglass__glass welcome-hourglass__glass--top" />
-                <span className="welcome-hourglass__glass welcome-hourglass__glass--bottom" />
-                <span className="welcome-hourglass__sand welcome-hourglass__sand--top" />
-                <span className="welcome-hourglass__stream" />
-                <span className="welcome-hourglass__sand welcome-hourglass__sand--bottom" />
-                <span className="welcome-hourglass__base" />
+              <div className="welcome-taskboard" aria-hidden="true">
+                <div className="welcome-taskboard__shell">
+                  <div className="welcome-taskboard__toolbar">
+                    <span className="welcome-taskboard__dot welcome-taskboard__dot--coral" />
+                    <span className="welcome-taskboard__dot welcome-taskboard__dot--gold" />
+                    <span className="welcome-taskboard__dot welcome-taskboard__dot--teal" />
+                  </div>
+
+                  <div className="welcome-taskboard__headline">
+                    <span className="welcome-taskboard__headline-line welcome-taskboard__headline-line--strong" />
+                    <span className="welcome-taskboard__headline-line" />
+                  </div>
+
+                  <div className="welcome-taskboard__columns">
+                    <div className="welcome-taskboard__column welcome-taskboard__column--primary">
+                      <span className="welcome-taskboard__column-title" />
+                      <div className="welcome-taskboard__item">
+                        <span className="welcome-taskboard__check" />
+                        <span className="welcome-taskboard__item-line welcome-taskboard__item-line--strong" />
+                        <span className="welcome-taskboard__pill welcome-taskboard__pill--coral" />
+                      </div>
+                      <div className="welcome-taskboard__item">
+                        <span className="welcome-taskboard__check welcome-taskboard__check--soft" />
+                        <span className="welcome-taskboard__item-line" />
+                        <span className="welcome-taskboard__pill welcome-taskboard__pill--teal" />
+                      </div>
+                    </div>
+
+                    <div className="welcome-taskboard__column welcome-taskboard__column--secondary">
+                      <span className="welcome-taskboard__column-title welcome-taskboard__column-title--short" />
+                      <div className="welcome-taskboard__stack-card">
+                        <span className="welcome-taskboard__stack-bar welcome-taskboard__stack-bar--gold" />
+                        <span className="welcome-taskboard__stack-bar welcome-taskboard__stack-bar--coral" />
+                        <span className="welcome-taskboard__stack-bar welcome-taskboard__stack-bar--teal" />
+                      </div>
+                      <div className="welcome-taskboard__mini-chart">
+                        <span className="welcome-taskboard__mini-chart-bar welcome-taskboard__mini-chart-bar--one" />
+                        <span className="welcome-taskboard__mini-chart-bar welcome-taskboard__mini-chart-bar--two" />
+                        <span className="welcome-taskboard__mini-chart-bar welcome-taskboard__mini-chart-bar--three" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="welcome-taskboard__floating welcome-taskboard__floating--left">
+                  <span className="welcome-taskboard__floating-icon" />
+                  <span className="welcome-taskboard__floating-line" />
+                </div>
+
+                <div className="welcome-taskboard__floating welcome-taskboard__floating--right">
+                  <span className="welcome-taskboard__floating-badge" />
+                </div>
               </div>
 
               <div className="welcome-spotlight__summary">
@@ -217,15 +291,21 @@ export default function WelcomeScreen() {
             <div className="welcome-spotlight__grid">
               <div className="welcome-spotlight__item">
                 <span className="welcome-spotlight__item-label">Checklist</span>
-                <strong>{checklistPendingCount}</strong>
+                <strong className="welcome-spotlight__item-value welcome-spotlight__item-value--count">
+                  {checklistPendingCount}
+                </strong>
               </div>
               <div className="welcome-spotlight__item">
                 <span className="welcome-spotlight__item-label">Reminder</span>
-                <strong>{reminderPendingCount}</strong>
+                <strong className="welcome-spotlight__item-value welcome-spotlight__item-value--count">
+                  {reminderPendingCount}
+                </strong>
               </div>
               <div className="welcome-spotlight__item">
                 <span className="welcome-spotlight__item-label">Score Focus</span>
-                <strong>{personalPendingCount > 0 ? "On Time" : "Stable"}</strong>
+                <strong className="welcome-spotlight__item-value">
+                  {personalPendingCount > 0 ? "On Time" : "Stable"}
+                </strong>
               </div>
             </div>
           </div>
@@ -285,11 +365,16 @@ export default function WelcomeScreen() {
         ) : null}
 
         <div className="welcome-card__actions">
-          <button type="button" className="btn btn-primary welcome-action-btn" onClick={handleContinue}>
-            OK
+          <button
+            type="button"
+            className="btn btn-primary welcome-action-btn"
+            onClick={handleContinue}
+            disabled={isContinueLocked}
+          >
+            {continueButtonLabel}
           </button>
         </div>
-      </div>
+      </WelcomeCard>
     </div>
   );
 }

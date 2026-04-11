@@ -65,7 +65,7 @@ export default function DesignationMaster() {
   };
 
   return (
-    <div className="container mt-4">
+    <div className="container-fluid px-3 px-lg-4 mt-4 mb-5">
       <h3>Designation Master</h3>
 
       <div className="card p-3 mb-3">
@@ -76,7 +76,7 @@ export default function DesignationMaster() {
           onChange={(e) => setName(e.target.value)}
         />
 
-        <div className="d-flex gap-2">
+        <div className="d-flex flex-wrap gap-2">
           <button className="btn btn-success" onClick={saveData} disabled={loading}>
             {loading ? "Saving..." : editingId ? "Update" : "Save"}
           </button>
@@ -88,31 +88,35 @@ export default function DesignationMaster() {
         </div>
       </div>
 
-      <table className="table table-bordered">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Designation</th>
-            <th width="170">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((d, i) => (
-            <tr key={d._id}>
-              <td>{i + 1}</td>
-              <td>{d.name}</td>
-              <td>
-                <button className="btn btn-sm btn-warning me-2" onClick={() => editRow(d)}>
-                  Edit
-                </button>
-                <button className="btn btn-sm btn-danger" onClick={() => deleteRow(d._id)}>
-                  Delete
-                </button>
-              </td>
+      <div className="table-responsive">
+        <table className="table table-bordered">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Designation</th>
+              <th width="170">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {list.map((d, i) => (
+              <tr key={d._id}>
+                <td>{i + 1}</td>
+                <td>{d.name}</td>
+                <td>
+                  <div className="d-flex flex-wrap gap-2">
+                    <button className="btn btn-sm btn-warning" onClick={() => editRow(d)}>
+                      Edit
+                    </button>
+                    <button className="btn btn-sm btn-danger" onClick={() => deleteRow(d._id)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

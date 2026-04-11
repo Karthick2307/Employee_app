@@ -4,6 +4,11 @@ const Site = require("../models/Site");
 const ExcelJS = require("exceljs");
 const bcrypt = require("bcryptjs");
 const { Types } = require("mongoose");
+const {
+  buildEmployeeScopeFilter,
+  isAllScope,
+  resolveAccessibleEmployeeIds,
+} = require("../services/accessScope.service");
 
 const normalizeSites = (value) =>
   Array.isArray(value) ? value : value ? [value] : [];
@@ -129,22 +134,6 @@ const formatSiteDisplayName = (site) => {
   const name = String(site.name || "").trim();
   if (companyName && name) return `${companyName} - ${name}`;
   return name || companyName;
-};
-
-const getRequesterRole = (user) =>
-  String(user?.role || "")
-    .trim()
-    .toLowerCase();
-
-const getChecklistUserSiteId = (user) => {
-  const role = getRequesterRole(user);
-  const siteId = String(user?.siteId || "").trim();
-
-  if (role === "admin" || role === "employee") return "";
-  if (!(role === "user" || Boolean(user?.checklistMasterAccess))) return "";
-  if (!Types.ObjectId.isValid(siteId)) return "";
-
-  return siteId;
 };
 
 const parseSubSitesPayload = (rawValue) => {
@@ -357,9 +346,8 @@ const mapEmployee = (employeeDoc) => {
 exports.getEmployees = async (req, res) => {
   try {
     const { search = "", status = "", department = "" } = req.query;
-    const filter = {};
-    const isEmployeeUser = String(req.user?.role || "").trim().toLowerCase() === "employee";
-    const checklistUserSiteId = getChecklistUserSiteId(req.user);
+    const scopeFilter = await buildEmployeeScopeFilter(req.access || {});
+    const filter = { ...scopeFilter };
 
     if (search) {
       filter.$or = [
@@ -373,8 +361,6 @@ exports.getEmployees = async (req, res) => {
     if (status === "active") filter.isActive = true;
     if (status === "inactive") filter.isActive = false;
     if (department) filter.department = department;
-    if (isEmployeeUser) filter._id = req.user.id;
-    if (checklistUserSiteId) filter.sites = checklistUserSiteId;
 
     const employees = await Employee.find(filter)
       .populate("department", "name subDepartments")
@@ -392,18 +378,16 @@ exports.getEmployees = async (req, res) => {
 
 exports.getEmployeeById = async (req, res) => {
   try {
-    const isEmployeeUser = String(req.user?.role || "").trim().toLowerCase() === "employee";
-    const checklistUserSiteId = getChecklistUserSiteId(req.user);
-    if (isEmployeeUser && String(req.user?.id || "") !== String(req.params.id || "")) {
-      return res.status(403).json({ message: "You can only view your own employee record" });
+    if (!isAllScope(req.access || {})) {
+      const accessibleEmployeeIds = await resolveAccessibleEmployeeIds(req.access || {});
+      const isAccessible = accessibleEmployeeIds.includes(String(req.params.id || ""));
+
+      if (!isAccessible) {
+        return res.status(403).json({ message: "You do not have access to this employee record" });
+      }
     }
 
-    const employeeFilter = { _id: req.params.id };
-    if (checklistUserSiteId) {
-      employeeFilter.sites = checklistUserSiteId;
-    }
-
-    const emp = await Employee.findOne(employeeFilter)
+    const emp = await Employee.findOne({ _id: req.params.id })
       .populate("department", "name subDepartments")
       .populate("designation", "name")
       .populate("superiorEmployee", "employeeCode employeeName")
@@ -592,7 +576,9 @@ exports.exportEmployeesExcel = async (req, res) => {
   try {
     const { status = "", department = "" } = req.query;
 
-    const filter = {};
+    const filter = {
+      ...(await buildEmployeeScopeFilter(req.access || {})),
+    };
     if (status === "active") filter.isActive = true;
     if (status === "inactive") filter.isActive = false;
     if (department) filter.department = department;

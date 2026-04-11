@@ -61,6 +61,164 @@ const buildTaskStageSummary = (task) => {
   ];
 };
 
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "svg",
+  "avif",
+]);
+
+const VIDEO_ATTACHMENT_EXTENSIONS = new Set([
+  "mp4",
+  "webm",
+  "ogg",
+  "mov",
+  "m4v",
+  "avi",
+  "mkv",
+]);
+
+const AUDIO_ATTACHMENT_EXTENSIONS = new Set([
+  "mp3",
+  "wav",
+  "ogg",
+  "m4a",
+  "aac",
+  "flac",
+]);
+
+const PDF_ATTACHMENT_EXTENSIONS = new Set(["pdf"]);
+const SPREADSHEET_ATTACHMENT_EXTENSIONS = new Set(["xls", "xlsx", "csv"]);
+const DOCUMENT_ATTACHMENT_EXTENSIONS = new Set([
+  "doc",
+  "docx",
+  "ppt",
+  "pptx",
+  "rtf",
+  "odt",
+]);
+const TEXT_ATTACHMENT_EXTENSIONS = new Set(["txt", "log", "json", "xml", "md"]);
+const ARCHIVE_ATTACHMENT_EXTENSIONS = new Set(["zip", "rar", "7z", "tar", "gz"]);
+
+const getAttachmentExtension = (value) => {
+  const normalizedValue = normalizeTaskText(value);
+  if (!normalizedValue.includes(".")) return "";
+  return normalizedValue.split(".").pop()?.toLowerCase() || "";
+};
+
+const buildAttachmentUrl = (uploadBaseUrl, fileName) => {
+  const normalizedFileName = normalizeTaskText(fileName);
+  return normalizedFileName
+    ? `${uploadBaseUrl}/uploads/${encodeURIComponent(normalizedFileName)}`
+    : "";
+};
+
+const getAttachmentTypeMeta = (file) => {
+  const attachmentName = normalizeTaskText(file?.originalName || file?.fileName);
+  const extension = getAttachmentExtension(attachmentName);
+
+  if (IMAGE_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "image",
+      label: "Image",
+      icon: "IMG",
+      badgeClass: "bg-primary-subtle text-primary border",
+      description: "Image preview available",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  if (VIDEO_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "video",
+      label: "Video",
+      icon: "VID",
+      badgeClass: "bg-danger-subtle text-danger border",
+      description: "Video preview available",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  if (AUDIO_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "audio",
+      label: "Audio",
+      icon: "AUD",
+      badgeClass: "bg-success-subtle text-success border",
+      description: "Audio preview available",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  if (PDF_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "pdf",
+      label: "PDF",
+      icon: "PDF",
+      badgeClass: "bg-warning-subtle text-warning-emphasis border",
+      description: "Portable document attachment",
+      extensionLabel: "PDF",
+    };
+  }
+
+  if (SPREADSHEET_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "spreadsheet",
+      label: "Sheet",
+      icon: "XLS",
+      badgeClass: "bg-success-subtle text-success border",
+      description: "Spreadsheet attachment",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  if (DOCUMENT_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "document",
+      label: "Document",
+      icon: "DOC",
+      badgeClass: "bg-info-subtle text-info-emphasis border",
+      description: "Document attachment",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  if (TEXT_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "text",
+      label: "Text",
+      icon: "TXT",
+      badgeClass: "bg-secondary-subtle text-secondary-emphasis border",
+      description: "Text-based attachment",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  if (ARCHIVE_ATTACHMENT_EXTENSIONS.has(extension)) {
+    return {
+      kind: "archive",
+      label: "Archive",
+      icon: "ZIP",
+      badgeClass: "bg-dark-subtle text-dark border",
+      description: "Compressed file attachment",
+      extensionLabel: extension.toUpperCase(),
+    };
+  }
+
+  return {
+    kind: "file",
+    label: "File",
+    icon: extension ? extension.slice(0, 4).toUpperCase() : "FILE",
+    badgeClass: "bg-secondary-subtle text-secondary-emphasis border",
+    description: "File attachment",
+    extensionLabel: extension ? extension.toUpperCase() : "FILE",
+  };
+};
+
 export default function ChecklistTaskView() {
   const { id } = useParams();
   const user = getUser();
@@ -589,19 +747,13 @@ export default function ChecklistTaskView() {
               <div className="fw-semibold mb-2">
                 {canSubmit || isAssignedEmployee ? "Submitted Attachments" : "Employee Attachments"}
               </div>
-              <ul className="list-group">
+              <div className="row g-3">
                 {task.employeeAttachments.map((file, index) => (
-                  <li className="list-group-item" key={`${file.fileName}-${index}`}>
-                    <a
-                      href={`${uploadBaseUrl}/uploads/${file.fileName}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {file.originalName}
-                    </a>
-                  </li>
+                  <div className="col-12 col-md-6 col-xl-4" key={`${file.fileName}-${index}`}>
+                    <AttachmentCard file={file} uploadBaseUrl={uploadBaseUrl} />
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
@@ -722,6 +874,90 @@ function Info({ label, value }) {
     <div className="col-md-4">
       <div className="small text-muted">{label}</div>
       <div>{value || value === 0 ? value : "-"}</div>
+    </div>
+  );
+}
+
+function AttachmentCard({ file, uploadBaseUrl }) {
+  const fileName = normalizeTaskText(file?.originalName || file?.fileName) || "Attachment";
+  const fileUrl = buildAttachmentUrl(uploadBaseUrl, file?.fileName);
+  const attachmentType = getAttachmentTypeMeta(file);
+
+  if (!fileUrl) {
+    return null;
+  }
+
+  const previewHeight = { maxHeight: "220px" };
+  const previewStyles = {
+    image: { ...previewHeight, objectFit: "cover", width: "100%" },
+    video: { ...previewHeight, width: "100%", backgroundColor: "#111827" },
+  };
+
+  return (
+    <div className="card h-100 shadow-sm border">
+      {attachmentType.kind === "image" ? (
+        <a href={fileUrl} target="_blank" rel="noreferrer" className="text-decoration-none">
+          <img
+            src={fileUrl}
+            alt={fileName}
+            className="card-img-top border-bottom"
+            style={previewStyles.image}
+          />
+        </a>
+      ) : attachmentType.kind === "video" ? (
+        <video controls className="w-100 rounded-top border-bottom" style={previewStyles.video}>
+          <source src={fileUrl} />
+        </video>
+      ) : attachmentType.kind === "audio" ? (
+        <div className="p-3 border-bottom bg-light">
+          <div className="d-flex align-items-center gap-3 mb-3">
+            <div
+              className="d-inline-flex align-items-center justify-content-center rounded-3 border bg-white fw-bold text-success"
+              style={{ width: "64px", height: "64px", letterSpacing: "0.08em" }}
+            >
+              {attachmentType.icon}
+            </div>
+            <div className="small text-muted">Audio preview available for this attachment.</div>
+          </div>
+          <audio controls className="w-100">
+            <source src={fileUrl} />
+          </audio>
+        </div>
+      ) : (
+        <div className="p-3 border-bottom bg-light">
+          <div className="d-flex align-items-center gap-3">
+            <div
+              className="d-inline-flex align-items-center justify-content-center rounded-3 border bg-white fw-bold text-primary"
+              style={{ width: "64px", height: "64px", letterSpacing: "0.08em" }}
+            >
+              {attachmentType.icon}
+            </div>
+            <div className="small text-muted">{attachmentType.description}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="card-body">
+        <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+          <span className={`badge ${attachmentType.badgeClass}`}>{attachmentType.label}</span>
+          <span className="small text-muted text-uppercase">{attachmentType.extensionLabel}</span>
+        </div>
+        <div className="fw-semibold text-break">{fileName}</div>
+      </div>
+
+      <div className="card-footer bg-white border-0 pt-0 pb-3 d-flex flex-wrap gap-2">
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="btn btn-sm btn-outline-primary"
+        >
+          Open
+        </a>
+        <a href={fileUrl} download={fileName} className="btn btn-sm btn-outline-secondary">
+          Download
+        </a>
+      </div>
     </div>
   );
 }

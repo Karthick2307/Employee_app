@@ -125,6 +125,17 @@ export default function DashboardFeedbackWidget({ pageLabel = "Dashboard" }) {
     </div>
   ) : null;
 
+  const feedbackButton = !isOpen ? (
+    <button
+      type="button"
+      className="feedback-widget__button"
+      onClick={openModal}
+      aria-label="Open feedback form"
+    >
+      Feedback
+    </button>
+  ) : null;
+
   const feedbackModal = isOpen ? (
     <div
       className="modal fade show d-block app-modal-overlay feedback-widget__overlay"
@@ -262,18 +273,7 @@ export default function DashboardFeedbackWidget({ pageLabel = "Dashboard" }) {
   return (
     <>
       {portalTarget ? createPortal(successToast, portalTarget) : successToast}
-
-      {!isOpen ? (
-        <button
-          type="button"
-          className="feedback-widget__button"
-          onClick={openModal}
-          aria-label="Open feedback form"
-        >
-          Feedback
-        </button>
-      ) : null}
-
+      {portalTarget ? createPortal(feedbackButton, portalTarget) : feedbackButton}
       {portalTarget ? createPortal(feedbackModal, portalTarget) : feedbackModal}
     </>
   );

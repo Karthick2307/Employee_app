@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../../api/axios";
 import SearchableCheckboxSelector from "../../components/SearchableCheckboxSelector";
+import { usePermissions } from "../../context/PermissionContext";
 import { formatDate, formatDateTime, formatScheduleLabel } from "../../utils/checklistDisplay";
 
 const initialFormState = {
@@ -144,10 +145,15 @@ const buildTransferConfirmationMessage = ({
   ].join("\n");
 
 export default function ChecklistTransferMaster() {
-  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
-  const currentUserRole = String(currentUser?.role || "").trim().toLowerCase();
-  const isAdminChecklistUser = currentUserRole === "admin";
-  const usesApprovalRequestFlow = !isAdminChecklistUser;
+  const { can } = usePermissions();
+  const canTransferChecklist = can("checklist_transfer", "transfer");
+  const canApplyTransferDirectly = can("checklist_master", "approve");
+  const usesApprovalRequestFlow = canTransferChecklist && !canApplyTransferDirectly;
+  const transferIntroText = !canTransferChecklist
+    ? "Review mapped employees, available checklist masters, and transfer history. Submission actions stay disabled until transfer permission is granted."
+    : usesApprovalRequestFlow
+    ? "Prepare checklist transfer requests and send them for admin approval before any assignment change is applied."
+    : "Reassign selected checklist masters between employees with either permanent movement or temporary date-based transfer windows while keeping the checklist configuration and workflow mapping unchanged.";
   const [activeOption, setActiveOption] = useState("");
   const [form, setForm] = useState(initialFormState);
   const [employees, setEmployees] = useState([]);
@@ -521,7 +527,7 @@ export default function ChecklistTransferMaster() {
         toEmployeeId: "",
       }));
 
-      if (isAdminChecklistUser) {
+      if (!usesApprovalRequestFlow) {
         await Promise.all([
           refreshSelectedEmployeeChecklists(form.fromEmployeeId),
           refreshHistory(),
@@ -628,7 +634,7 @@ export default function ChecklistTransferMaster() {
       }));
       setSelectedChecklistIds([]);
 
-      if (isAdminChecklistUser) {
+      if (!usesApprovalRequestFlow) {
         await Promise.all([
           refreshSelectedEmployeeChecklists(form.fromEmployeeId),
           refreshHistory(),
@@ -651,11 +657,7 @@ export default function ChecklistTransferMaster() {
           <div>
             <div className="page-kicker">Masters</div>
             <h3 className="mb-1">Checklist Transfer</h3>
-            <p className="page-subtitle mb-0">
-              {usesApprovalRequestFlow
-                ? "Prepare checklist transfer requests and send them for admin approval before any assignment change is applied."
-                : "Reassign selected checklist masters between employees with either permanent movement or temporary date-based transfer windows while keeping the checklist configuration and workflow mapping unchanged."}
-            </p>
+            <p className="page-subtitle mb-0">{transferIntroText}</p>
           </div>
 
           <div className="list-summary">
@@ -723,6 +725,13 @@ export default function ChecklistTransferMaster() {
       {success ? (
         <div className="alert alert-success" role="alert">
           {success}
+        </div>
+      ) : null}
+
+      {!canTransferChecklist ? (
+        <div className="alert alert-info" role="alert">
+          Transfer submission is disabled for your account. You can still review mapped employees,
+          checklist availability, and transfer history from this screen.
         </div>
       ) : null}
 
@@ -925,9 +934,10 @@ export default function ChecklistTransferMaster() {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={isTemporaryTransfer ? handleTemporaryTransfer : handlePermanentTransfer}
-                disabled={
+              onClick={isTemporaryTransfer ? handleTemporaryTransfer : handlePermanentTransfer}
+              disabled={
                   submitting ||
+                  !canTransferChecklist ||
                   !form.fromEmployeeId ||
                   !form.toEmployeeId ||
                   (isTemporaryTransfer && (!form.fromDate || !form.toDate || hasInvalidTemporaryDateRange)) ||

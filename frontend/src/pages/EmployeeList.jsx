@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../api/axios";
+import { usePermissions } from "../context/PermissionContext";
 import { formatDepartmentList } from "../utils/departmentDisplay";
 import { formatSiteList } from "../utils/siteDisplay";
 
@@ -102,6 +103,7 @@ function DeleteIcon() {
 }
 
 export default function EmployeeList() {
+  const { can } = usePermissions();
   const [employees, setEmployees] = useState([]);
   const [photoErrors, setPhotoErrors] = useState({});
   const [search, setSearch] = useState("");
@@ -113,9 +115,11 @@ export default function EmployeeList() {
   const [params] = useSearchParams();
   const department = params.get("department");
   const paramsKey = params.toString();
-
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const isAdmin = user?.role === "admin";
+  const canAddEmployee = can("employee_master", "add");
+  const canEditEmployee = can("employee_master", "edit");
+  const canDeleteEmployee = can("employee_master", "delete");
+  const canToggleEmployeeStatus = can("employee_master", "status_update");
+  const canExportEmployees = can("employee_master", "export");
   const uploadBaseUrl = useMemo(
     () => (api.defaults.baseURL || "http://localhost:5000/api").replace(/\/api\/?$/, ""),
     []
@@ -148,7 +152,7 @@ export default function EmployeeList() {
   }, [loadEmployees, paramsKey]);
 
   useEffect(() => {
-    if (!isAdmin) {
+    if (!canDeleteEmployee) {
       setSelectedEmployeeIds([]);
       return;
     }
@@ -158,7 +162,7 @@ export default function EmployeeList() {
         employees.some((employee) => String(employee._id) === String(selectedId))
       )
     );
-  }, [employees, isAdmin]);
+  }, [canDeleteEmployee, employees]);
 
   const removeEmployeesFromState = (employeeIds) => {
     const normalizedIds = employeeIds.map((id) => String(id));
@@ -312,7 +316,7 @@ export default function EmployeeList() {
     getStatusFilterLabel(status),
   ].filter(Boolean);
 
-  if (isAdmin) {
+  if (canDeleteEmployee) {
     stats.push({
       label: "Selected Rows",
       value: selectedEmployeeIds.length,
@@ -348,23 +352,27 @@ export default function EmployeeList() {
             )}
           </div>
 
-          {isAdmin ? (
+          {canAddEmployee || canDeleteEmployee ? (
             <div className="d-flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn btn-outline-danger"
-                onClick={removeSelectedEmployees}
-                disabled={!selectedEmployeeIds.length || bulkDeleteLoading}
-              >
-                {bulkDeleteLoading
-                  ? "Deleting..."
-                  : `Delete Selected${
-                      selectedEmployeeIds.length ? ` (${selectedEmployeeIds.length})` : ""
-                    }`}
-              </button>
-              <Link to="/add" className="btn btn-primary">
-                Add Employee
-              </Link>
+              {canDeleteEmployee ? (
+                <button
+                  type="button"
+                  className="btn btn-outline-danger"
+                  onClick={removeSelectedEmployees}
+                  disabled={!selectedEmployeeIds.length || bulkDeleteLoading}
+                >
+                  {bulkDeleteLoading
+                    ? "Deleting..."
+                    : `Delete Selected${
+                        selectedEmployeeIds.length ? ` (${selectedEmployeeIds.length})` : ""
+                      }`}
+                </button>
+              ) : null}
+              {canAddEmployee ? (
+                <Link to="/add" className="btn btn-primary">
+                  Add Employee
+                </Link>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -399,7 +407,7 @@ export default function EmployeeList() {
             >
               Clear Filters
             </button>
-            {isAdmin ? (
+            {canExportEmployees ? (
               <button type="button" className="btn btn-success" onClick={exportExcel}>
                 Export Excel
               </button>
@@ -452,7 +460,7 @@ export default function EmployeeList() {
           <table className="table table-bordered table-striped align-middle employee-directory-table">
             <thead className="table-dark">
               <tr>
-                {isAdmin ? (
+                {canDeleteEmployee ? (
                   <th className="text-center" style={{ width: "56px" }}>
                     <input
                       type="checkbox"
@@ -481,20 +489,20 @@ export default function EmployeeList() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={isAdmin ? 12 : 11} className="text-center py-4">
+                  <td colSpan={canDeleteEmployee ? 12 : 11} className="text-center py-4">
                     Loading employees...
                   </td>
                 </tr>
               ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 12 : 11} className="text-center py-4">
+                  <td colSpan={canDeleteEmployee ? 12 : 11} className="text-center py-4">
                     No employees found for the current filters.
                   </td>
                 </tr>
               ) : (
                 employees.map((employee) => (
                   <tr key={employee._id}>
-                    {isAdmin ? (
+                    {canDeleteEmployee ? (
                       <td className="text-center">
                         <input
                           type="checkbox"
@@ -640,40 +648,46 @@ export default function EmployeeList() {
                           <ViewIcon />
                         </Link>
 
-                        {isAdmin ? (
+                        {canEditEmployee || canToggleEmployeeStatus || canDeleteEmployee ? (
                           <>
-                            <Link
-                              className="btn btn-sm btn-warning app-icon-action-btn"
-                              to={`/edit/${employee._id}`}
-                              title={`Edit ${employee.employeeName || employee.employeeCode || "employee"}`}
-                              aria-label={`Edit ${employee.employeeName || employee.employeeCode || "employee"}`}
-                            >
-                              <EditIcon />
-                            </Link>
+                            {canEditEmployee ? (
+                              <Link
+                                className="btn btn-sm btn-warning app-icon-action-btn"
+                                to={`/edit/${employee._id}`}
+                                title={`Edit ${employee.employeeName || employee.employeeCode || "employee"}`}
+                                aria-label={`Edit ${employee.employeeName || employee.employeeCode || "employee"}`}
+                              >
+                                <EditIcon />
+                              </Link>
+                            ) : null}
 
-                            <button
-                              className={`btn btn-sm app-icon-action-btn ${
-                                employee.isActive ? "btn-secondary" : "btn-success"
-                              }`}
-                              onClick={() => toggleStatus(employee._id, employee.isActive)}
-                              title={`${
-                                employee.isActive ? "Deactivate" : "Activate"
-                              } ${employee.employeeName || employee.employeeCode || "employee"}`}
-                              aria-label={`${
-                                employee.isActive ? "Deactivate" : "Activate"
-                              } ${employee.employeeName || employee.employeeCode || "employee"}`}
-                            >
-                              <ToggleIcon active={employee.isActive} />
-                            </button>
+                            {canToggleEmployeeStatus ? (
+                              <button
+                                className={`btn btn-sm app-icon-action-btn ${
+                                  employee.isActive ? "btn-secondary" : "btn-success"
+                                }`}
+                                onClick={() => toggleStatus(employee._id, employee.isActive)}
+                                title={`${
+                                  employee.isActive ? "Deactivate" : "Activate"
+                                } ${employee.employeeName || employee.employeeCode || "employee"}`}
+                                aria-label={`${
+                                  employee.isActive ? "Deactivate" : "Activate"
+                                } ${employee.employeeName || employee.employeeCode || "employee"}`}
+                              >
+                                <ToggleIcon active={employee.isActive} />
+                              </button>
+                            ) : null}
 
-                            <button
-                              className="btn btn-sm btn-danger app-icon-action-btn"
-                              onClick={() => removeEmployee(employee._id)}
-                              title={`Delete ${employee.employeeName || employee.employeeCode || "employee"}`}
-                              aria-label={`Delete ${employee.employeeName || employee.employeeCode || "employee"}`}
-                            >
-                              <DeleteIcon />
-                            </button>
+                            {canDeleteEmployee ? (
+                              <button
+                                className="btn btn-sm btn-danger app-icon-action-btn"
+                                onClick={() => removeEmployee(employee._id)}
+                                title={`Delete ${employee.employeeName || employee.employeeCode || "employee"}`}
+                                aria-label={`Delete ${employee.employeeName || employee.employeeCode || "employee"}`}
+                              >
+                                <DeleteIcon />
+                              </button>
+                            ) : null}
                           </>
                         ) : null}
                       </div>

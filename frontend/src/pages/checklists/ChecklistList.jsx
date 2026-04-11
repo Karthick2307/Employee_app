@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/axios";
+import { usePermissions } from "../../context/PermissionContext";
 import {
   formatApprovalLabel,
   formatApprovalTypeLabel,
@@ -23,7 +24,6 @@ import {
   getChecklistTaskStatusBadgeClass,
 } from "../../utils/checklistDisplay";
 
-const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
 const getChecklistSiteName = (site) => String(site?.name || "").trim();
 
 function ViewIcon() {
@@ -109,13 +109,15 @@ function DeleteIcon() {
 }
 
 export default function ChecklistList() {
-  const user = getUser();
-  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
-  const hasRestrictedChecklistAccess =
-    !isAdmin &&
-    (String(user?.role || "").trim().toLowerCase() === "user" ||
-      Boolean(user?.checklistMasterAccess));
-  const canManageChecklistMasters = isAdmin || hasRestrictedChecklistAccess;
+  const { can } = usePermissions();
+  const canManageChecklistMasters = can("checklist_master", "view");
+  const canCreateChecklistMaster = can("checklist_master", "add");
+  const canEditChecklistMaster = can("checklist_master", "edit");
+  const canDeleteChecklistMaster = can("checklist_master", "delete");
+  const canStatusUpdateChecklistMaster = can("checklist_master", "status_update");
+  const canExportChecklistMaster = can("checklist_master", "export");
+  const canViewOwnTasks = can("own_task", "view");
+  const canViewApprovalInbox = can("approval_inbox", "view");
 
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
@@ -407,11 +409,13 @@ export default function ChecklistList() {
         exportLoading={exportLoading}
         openChecklistImportPicker={openChecklistImportPicker}
         importLoading={importLoading}
-        canDelete={true}
-        canCreate={true}
-        canEdit={canManageChecklistMasters}
-        canToggle={isAdmin}
-        canRunScheduler={isAdmin}
+        canDelete={canDeleteChecklistMaster}
+        canCreate={canCreateChecklistMaster}
+        canEdit={canEditChecklistMaster}
+        canToggle={canStatusUpdateChecklistMaster}
+        canRunScheduler={canStatusUpdateChecklistMaster}
+        canExport={canExportChecklistMaster}
+        canImport={canCreateChecklistMaster}
       />
     </>
   ) : (
@@ -425,6 +429,8 @@ export default function ChecklistList() {
       setStatus={setStatus}
       setScheduleType={setScheduleType}
       clearFilters={clearFilters}
+      canViewOwnTasks={canViewOwnTasks}
+      canViewApprovalInbox={canViewApprovalInbox}
     />
   );
 }
@@ -452,6 +458,8 @@ function AdminChecklistMasterList({
   exportLoading,
   openChecklistImportPicker,
   importLoading,
+  canExport,
+  canImport,
   canDelete,
   canCreate,
   canEdit,
@@ -490,22 +498,26 @@ function AdminChecklistMasterList({
                   : `Delete Selected${selectedChecklistIds.length ? ` (${selectedChecklistIds.length})` : ""}`}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="btn btn-outline-success"
-              onClick={exportChecklistExcel}
-              disabled={exportLoading}
-            >
-              {exportLoading ? "Exporting..." : "Export Excel"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline-secondary"
-              onClick={openChecklistImportPicker}
-              disabled={importLoading}
-            >
-              {importLoading ? "Importing..." : "Import Excel"}
-            </button>
+            {canExport ? (
+              <button
+                type="button"
+                className="btn btn-outline-success"
+                onClick={exportChecklistExcel}
+                disabled={exportLoading}
+              >
+                {exportLoading ? "Exporting..." : "Export Excel"}
+              </button>
+            ) : null}
+            {canImport ? (
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                onClick={openChecklistImportPicker}
+                disabled={importLoading}
+              >
+                {importLoading ? "Importing..." : "Import Excel"}
+              </button>
+            ) : null}
             {canRunScheduler ? (
               <button
                 type="button"
@@ -759,6 +771,8 @@ function EmployeeChecklistTaskList({
   setStatus,
   setScheduleType,
   clearFilters,
+  canViewOwnTasks,
+  canViewApprovalInbox,
 }) {
   const openCount = rows.filter((row) => row.status === "open").length;
   const waitingDependencyCount = rows.filter(
@@ -782,12 +796,16 @@ function EmployeeChecklistTaskList({
           </div>
 
           <div className="d-flex flex-wrap gap-2">
-            <Link to="/own-tasks" className="btn btn-outline-secondary">
-              Own Tasks
-            </Link>
-            <Link to="/checklists/approvals" className="btn btn-outline-primary">
-              Approval Inbox
-            </Link>
+            {canViewOwnTasks ? (
+              <Link to="/own-tasks" className="btn btn-outline-secondary">
+                Own Tasks
+              </Link>
+            ) : null}
+            {canViewApprovalInbox ? (
+              <Link to="/checklists/approvals" className="btn btn-outline-primary">
+                Approval Inbox
+              </Link>
+            ) : null}
           </div>
         </div>
 

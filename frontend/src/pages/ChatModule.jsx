@@ -337,8 +337,8 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   loadNotificationsRef.current = loadNotifications;
 
   useEffect(() => {
-    void loadGroups(true);
-    void loadNotifications(true);
+    void loadGroupsRef.current(true);
+    void loadNotificationsRef.current(true);
   }, [apiBasePath]);
 
   useEffect(() => {
@@ -349,7 +349,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
     }
 
     resetEditingState();
-    void loadMessages(selectedGroupId, true);
+    void loadMessagesRef.current(selectedGroupId, true);
   }, [selectedGroupId, deferredMessageSearch]);
 
   useEffect(() => {
