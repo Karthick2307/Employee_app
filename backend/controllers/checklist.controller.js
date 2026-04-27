@@ -154,6 +154,7 @@ const checklistTaskReportExcelColumns = [
   { header: "Submitted At", key: "submittedAt", width: 22 },
   { header: "Submission Status", key: "submissionStatus", width: 20 },
   { header: "Approval Type", key: "approvalType", width: 16 },
+  { header: "Scoring", key: "scoring", width: 30 },
   { header: "Time Status", key: "timeStatus", width: 16 },
   { header: "Delay / Advance", key: "delayAdvance", width: 18 },
   { header: "Adjustment", key: "adjustment", width: 14 },
@@ -344,11 +345,7 @@ const getChecklistScoreDisplay = (payload = {}) => {
 
   if (!enableMark) return "Disabled";
 
-  return [
-    `Base ${payload?.baseMark ?? 0}`,
-    `Delay ${payload?.delayPenaltyPerDay ?? 0}/day`,
-    `Advance ${payload?.advanceBonusPerDay ?? 0}/day`,
-  ].join(" | ");
+  return `Base ${reportMarkFormatter.format(roundMarkValue(payload?.baseMark ?? 0) ?? 0)}`;
 };
 
 const buildChecklistScheduleDisplay = (payload = {}) => {
@@ -2126,6 +2123,15 @@ const formatReportMarkAdjustment = (value) => {
   return formatReportMarkValue(0);
 };
 
+const formatChecklistTaskScoringLabel = (task = {}) => {
+  const markConfig = getChecklistMarkConfig(task);
+
+  if (markConfig.isNilApproval) return "Nil approval | No Mark";
+  if (!markConfig.enableMark) return "Disabled";
+
+  return `Base ${formatReportMarkValue(markConfig.baseMark)}`;
+};
+
 const formatChecklistTaskMarkDayLabel = (task = {}) => {
   const markSummary = getChecklistTaskMarkSummary(task);
 
@@ -2286,6 +2292,7 @@ const buildChecklistTaskReportRow = (task = {}, index = 0) => {
     submittedAt: formatReportDateTime(task.submittedAt),
     submissionStatus: task?.submittedAt ? "Submitted" : "Pending Submission",
     approvalType: formatChecklistTaskApprovalTypeLabel(task),
+    scoring: formatChecklistTaskScoringLabel(task),
     timeStatus: formatChecklistTaskTimelinessLabel(
       task?.submissionTimingStatus || task?.timelinessStatus
     ),
@@ -2629,6 +2636,7 @@ const buildChecklistTaskPdfPages = (reportRows = [], query = {}) => {
       addWrappedBlock(`Workflow: ${row.approvalWorkflow}`);
     }
 
+    addWrappedBlock(`Scoring: ${row.scoring}`);
     addWrappedBlock(`Time Status: ${row.timeStatus} | Delay/Advance: ${row.delayAdvance}`);
     addWrappedBlock(`Adjustment: ${row.adjustment} | Final Mark: ${row.finalMark}`);
     block.push({ text: "", font: "F1", size: 10, gap: 12 });
@@ -2935,7 +2943,7 @@ exports.deleteChecklist = async (req, res) => {
     }
 
     const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
-    const checklist = await Checklist.findOneAndDelete(
+    const checklist = await Checklist.findOne(
       mergeQueryFilters(
         { _id: req.params.id },
         await buildChecklistMasterScopeFilter(req.access || {}),
@@ -2947,7 +2955,18 @@ exports.deleteChecklist = async (req, res) => {
       return res.status(404).json({ message: "Checklist master not found" });
     }
 
-    await ChecklistTask.deleteMany({ checklist: checklist._id });
+    const hasGeneratedTasks = await ChecklistTask.exists({ checklist: checklist._id });
+    if (hasGeneratedTasks) {
+      return res.status(400).json({
+        message:
+          "Generated employee tasks already exist for this checklist master. Disable it instead of deleting it.",
+      });
+    }
+
+    checklist.status = false;
+    checklist.isDeleted = true;
+    checklist.deletedAt = new Date();
+    await checklist.save();
 
     return res.json({ success: true });
   } catch (err) {
@@ -2990,19 +3009,43 @@ exports.bulkDeleteChecklists = async (req, res) => {
     }
 
     const existingChecklistIds = existingChecklists.map((checklist) => checklist._id);
+    const checklistsWithTasks = new Set(
+      (
+        await ChecklistTask.distinct("checklist", {
+          checklist: { $in: existingChecklistIds },
+        })
+      ).map((checklistId) => normalizeText(checklistId))
+    );
+    const deletableChecklistIds = existingChecklistIds.filter(
+      (checklistId) => !checklistsWithTasks.has(normalizeText(checklistId))
+    );
 
-    await Checklist.deleteMany(
+    if (!deletableChecklistIds.length) {
+      return res.status(400).json({
+        message:
+          "Selected checklist masters already have generated employee tasks. Disable them instead of deleting them.",
+      });
+    }
+
+    await Checklist.updateMany(
       mergeQueryFilters(
-        { _id: { $in: existingChecklistIds } },
+        { _id: { $in: deletableChecklistIds } },
         await buildChecklistMasterScopeFilter(req.access || {}),
         restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
-      )
+      ),
+      {
+        $set: {
+          status: false,
+          isDeleted: true,
+          deletedAt: new Date(),
+        },
+      }
     );
-    await ChecklistTask.deleteMany({ checklist: { $in: existingChecklistIds } });
 
     return res.json({
       success: true,
-      deletedCount: existingChecklistIds.length,
+      deletedCount: deletableChecklistIds.length,
+      skippedCount: existingChecklistIds.length - deletableChecklistIds.length,
     });
   } catch (err) {
     console.error("BULK DELETE CHECKLISTS ERROR:", err);

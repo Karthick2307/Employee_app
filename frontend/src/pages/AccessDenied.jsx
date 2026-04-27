@@ -1,5 +1,5 @@
-import { Link, useLocation } from "react-router-dom";
-import { usePermissions } from "../context/PermissionContext";
+﻿import { Link, useLocation } from "react-router-dom";
+import { usePermissions } from "../context/usePermissions";
 
 export default function AccessDenied() {
   const location = useLocation();
@@ -28,3 +28,4 @@ export default function AccessDenied() {
     </div>
   );
 }
+

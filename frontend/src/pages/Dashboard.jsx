@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../api/axios";
 import DashboardFeedbackWidget from "../components/DashboardFeedbackWidget";
-import { usePermissions } from "../context/PermissionContext";
+import { usePermissions } from "../context/usePermissions";
 import "../dashboard-redesign.css";
 import {
   formatChecklistTaskStatus,
@@ -134,44 +134,52 @@ const buildDashboardLevelCardContent = (levelKey, item = {}) => {
         title: safeTitle,
         metrics: [
           { label: "Overall Mark", value: item.overallMark, kind: "mark" },
+          { label: "Target Mark", value: item.targetMark || 0 },
           { label: "Sites", value: item.siteCount || 0 },
           { label: "Departments", value: item.departmentCount || 0 },
           { label: "Sub Departments", value: item.subDepartmentCount || 0 },
           { label: "Employees", value: item.employeeCount || 0 },
         ],
         details: [],
+        performance: getDashboardPerformanceData(item),
       };
     case "sites":
       return {
         title: safeTitle,
         metrics: [
           { label: "Overall Mark", value: item.overallMark, kind: "mark" },
+          { label: "Target Mark", value: item.targetMark || 0 },
           { label: "Departments", value: item.departmentCount || 0 },
           { label: "Sub Departments", value: item.subDepartmentCount || 0 },
           { label: "Employees", value: item.employeeCount || 0 },
         ],
         details: item.companyName ? [`Company: ${item.companyName}`] : [],
+        performance: getDashboardPerformanceData(item),
       };
     case "departments":
       return {
         title: safeTitle,
         metrics: [
           { label: "Overall Mark", value: item.overallMark, kind: "mark" },
+          { label: "Target Mark", value: item.targetMark || 0 },
           { label: "Sub Departments", value: item.subDepartmentCount || 0 },
           { label: "Employees", value: item.employeeCount || 0 },
           { label: "Scored Checklists", value: item.scoredChecklistCount || 0 },
         ],
         details: [],
+        performance: getDashboardPerformanceData(item),
       };
     case "subDepartments":
       return {
         title: safeTitle,
         metrics: [
           { label: "Overall Mark", value: item.overallMark, kind: "mark" },
+          { label: "Target Mark", value: item.targetMark || 0 },
           { label: "Employees", value: item.employeeCount || 0 },
           { label: "Scored Checklists", value: item.scoredChecklistCount || 0 },
         ],
         details: item.departmentName ? [`Department: ${item.departmentName}`] : [],
+        performance: getDashboardPerformanceData(item),
       };
     case "employees":
       return {
@@ -181,6 +189,7 @@ const buildDashboardLevelCardContent = (levelKey, item = {}) => {
           { label: "Scored Checklists", value: item.scoredChecklistCount || 0 },
         ],
         details: [],
+        performance: getDashboardPerformanceData(item),
       };
     default:
       return {
@@ -529,6 +538,124 @@ const renderCountUpValue = (value, className = "", duration = DEFAULT_COUNT_UP_D
 
   return <CountUp value={value} className={className} duration={duration} />;
 };
+
+const dashboardMetricFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+});
+
+const roundPerformanceValue = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue)) {
+    return null;
+  }
+
+  return Math.round(parsedValue * 10) / 10;
+};
+
+const formatDashboardMetricValue = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue)) {
+    return "0";
+  }
+
+  return dashboardMetricFormatter.format(parsedValue);
+};
+
+function getDashboardPerformanceData(item = {}) {
+  const overallMark =
+    item?.overallMark === null || item?.overallMark === undefined || item?.overallMark === ""
+      ? null
+      : Number(item.overallMark);
+  const targetMark =
+    item?.targetMark === null || item?.targetMark === undefined || item?.targetMark === ""
+      ? null
+      : Number(item.targetMark);
+  const hasTarget = Number.isFinite(targetMark) && targetMark > 0;
+  const configuredPercentage =
+    item?.performancePercentage === null ||
+    item?.performancePercentage === undefined ||
+    item?.performancePercentage === ""
+      ? null
+      : Number(item.performancePercentage);
+  const rawPercentage = Number.isFinite(configuredPercentage)
+    ? configuredPercentage
+    : hasTarget && Number.isFinite(overallMark)
+    ? (overallMark / targetMark) * 100
+    : null;
+  const percentage = roundPerformanceValue(rawPercentage);
+
+  let tone = "neutral";
+  if (percentage !== null) {
+    if (percentage < 50) {
+      tone = "danger";
+    } else if (percentage <= 80) {
+      tone = "warning";
+    } else {
+      tone = "success";
+    }
+  }
+
+  return {
+    hasData: percentage !== null,
+    overallMark: Number.isFinite(overallMark) ? overallMark : 0,
+    targetMark: hasTarget ? targetMark : 0,
+    percentage,
+    tone,
+    fillPercentage: percentage === null ? 0 : Math.max(0, Math.min(100, percentage)),
+    tooltip: hasTarget
+      ? `Achieved: ${formatDashboardMetricValue(overallMark)} / ${formatDashboardMetricValue(
+          targetMark
+        )}`
+      : "No scored checklist target available yet.",
+  };
+}
+
+function EmployeePerformanceIndicator({
+  performance,
+  compact = false,
+  className = "",
+}) {
+  if (!performance) {
+    return null;
+  }
+
+  return (
+    <div
+      className={[
+        "dashboard-performance",
+        `dashboard-performance--${performance.tone}`,
+        compact ? "dashboard-performance--compact" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      title={performance.tooltip}
+      aria-label={performance.tooltip}
+    >
+      <div className="dashboard-performance__header">
+        <span className="dashboard-performance__label">Performance</span>
+        <span className="dashboard-performance__value">
+          {performance.hasData ? (
+            <>
+              <CountUp value={performance.percentage} duration={0.95} />%
+            </>
+          ) : (
+            "No Data"
+          )}
+        </span>
+      </div>
+
+      <div className="dashboard-performance__track" aria-hidden="true">
+        <span
+          className="dashboard-performance__fill"
+          style={{ width: `${performance.fillPercentage}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard({
   pageTitle = "Dashboard",
@@ -1069,9 +1196,18 @@ export default function Dashboard({
             <p className="page-subtitle mb-0">{pageSubtitle}</p>
           </div>
 
-          <span className="summary-chip">
-            {isCompanySiteDrilldown ? "Company to employee view" : "Department view"}
-          </span>
+          <div className="d-flex flex-wrap align-items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              onClick={() => navigate("/welcome?preview=1")}
+            >
+              Back to Welcome
+            </button>
+            <span className="summary-chip">
+              {isCompanySiteDrilldown ? "Company to employee view" : "Department view"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1213,6 +1349,7 @@ export default function Dashboard({
                               title={cardContent.title}
                               metrics={cardContent.metrics}
                               details={cardContent.details}
+                              performance={cardContent.performance}
                               photo={item.photo}
                               photoError={photoErrors[item._id]}
                               uploadBaseUrl={uploadBaseUrl}
@@ -1258,6 +1395,7 @@ export default function Dashboard({
                                   : undefined
                               }
                               primaryText={buildEmployeeCountText(company.employeeCount)}
+                              performance={getDashboardPerformanceData(company)}
                               active={String(selectedCompanyId) === String(company._id)}
                               onClick={() => selectCompany(company._id)}
                             />
@@ -1294,6 +1432,9 @@ export default function Dashboard({
                           }
                           primaryText={buildEmployeeCountText(
                             drilldownData.selectedCompany.employeeCount
+                          )}
+                          performance={getDashboardPerformanceData(
+                            drilldownData.selectedCompany
                           )}
                           active
                           onClick={() => {}}
@@ -1375,6 +1516,7 @@ export default function Dashboard({
                                   : undefined
                               }
                               primaryText={buildCountLabel(site.employeeCount, "employee")}
+                              performance={getDashboardPerformanceData(site)}
                               secondaryText={site.companyName || "Site"}
                               active={String(selectedSiteId) === String(site._id)}
                               onClick={() => selectSite(site._id)}
@@ -1486,6 +1628,7 @@ export default function Dashboard({
                                 department.subDepartmentCount,
                                 "sub department"
                               )}
+                              performance={getDashboardPerformanceData(department)}
                               secondaryText={buildCountLabel(
                                 department.employeeCount,
                                 "employee"
@@ -1542,6 +1685,7 @@ export default function Dashboard({
                                 subDepartment.employeeCount,
                                 "employee"
                               )}
+                              performance={getDashboardPerformanceData(subDepartment)}
                               secondaryText={subDepartment.departmentName || "Sub Department"}
                               active={
                                 String(selectedSubDepartmentId) === String(subDepartment._id)
@@ -1579,6 +1723,7 @@ export default function Dashboard({
                             <DrilldownChoiceCard
                               title={employee.employeeName || "-"}
                               primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                              performance={getDashboardPerformanceData(employee)}
                               secondaryText={buildScoredChecklistText(
                                 employee.scoredChecklistCount
                               )}
@@ -1687,6 +1832,7 @@ export default function Dashboard({
                               : undefined
                           }
                           primaryText={buildEmployeeCountText(company.employeeCount)}
+                          performance={getDashboardPerformanceData(company)}
                           active={String(selectedCompanyId) === String(company._id)}
                           onClick={() => selectCompany(company._id)}
                         />
@@ -1752,6 +1898,7 @@ export default function Dashboard({
                                 : undefined
                             }
                             primaryText={buildCountLabel(site.employeeCount, "employee")}
+                            performance={getDashboardPerformanceData(site)}
                             secondaryText={site.companyName || "Site"}
                             active={String(selectedSiteId) === String(site._id)}
                             onClick={() => selectSite(site._id)}
@@ -1834,6 +1981,7 @@ export default function Dashboard({
                               department.subDepartmentCount,
                               "sub department"
                             )}
+                            performance={getDashboardPerformanceData(department)}
                             secondaryText={buildCountLabel(
                               department.employeeCount,
                               "employee"
@@ -1876,6 +2024,7 @@ export default function Dashboard({
                               subDepartment.employeeCount,
                               "employee"
                             )}
+                            performance={getDashboardPerformanceData(subDepartment)}
                             secondaryText={subDepartment.departmentName || "Sub Department"}
                             active={String(selectedSubDepartmentId) === String(subDepartment._id)}
                             onClick={() => selectSubDepartment(subDepartment._id)}
@@ -1905,6 +2054,7 @@ export default function Dashboard({
                           <DrilldownChoiceCard
                             title={employee.employeeName || "-"}
                             primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                            performance={getDashboardPerformanceData(employee)}
                             secondaryText={buildScoredChecklistText(
                               employee.scoredChecklistCount
                             )}
@@ -1972,6 +2122,7 @@ export default function Dashboard({
                               department.subDepartmentCount,
                               "sub department"
                             )}
+                            performance={getDashboardPerformanceData(department)}
                             secondaryText={buildCountLabel(
                               department.employeeCount,
                               "employee"
@@ -2008,6 +2159,7 @@ export default function Dashboard({
                                 subDepartment.employeeCount,
                                 "employee"
                               )}
+                              performance={getDashboardPerformanceData(subDepartment)}
                               secondaryText={subDepartment.departmentName || "Sub Department"}
                               active={
                                 String(selectedSubDepartmentId) === String(subDepartment._id)
@@ -2045,6 +2197,7 @@ export default function Dashboard({
                             <DrilldownChoiceCard
                               title={employee.employeeName || "-"}
                               primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                              performance={getDashboardPerformanceData(employee)}
                               secondaryText={buildScoredChecklistText(
                                 employee.scoredChecklistCount
                               )}
@@ -2114,6 +2267,7 @@ export default function Dashboard({
                             department.subDepartmentCount,
                             "sub department"
                           )}
+                          performance={getDashboardPerformanceData(department)}
                           secondaryText={buildCountLabel(
                             department.employeeCount,
                             "employee"
@@ -2144,6 +2298,7 @@ export default function Dashboard({
                               subDepartment.employeeCount,
                               "employee"
                             )}
+                            performance={getDashboardPerformanceData(subDepartment)}
                             secondaryText={subDepartment.departmentName || "Sub Department"}
                             active={String(selectedSubDepartmentId) === String(subDepartment._id)}
                             onClick={() => selectSubDepartment(subDepartment._id)}
@@ -2173,6 +2328,7 @@ export default function Dashboard({
                           <DrilldownChoiceCard
                             title={employee.employeeName || "-"}
                             primaryText={buildMarkSummaryText(employee?.overallMark ?? 0)}
+                            performance={getDashboardPerformanceData(employee)}
                             secondaryText={buildScoredChecklistText(
                               employee.scoredChecklistCount
                             )}
@@ -2419,6 +2575,7 @@ function DrilldownChoiceCard({
   markText,
   primaryText,
   secondaryText,
+  performance,
   active,
   onClick,
   photo,
@@ -2488,6 +2645,13 @@ function DrilldownChoiceCard({
                 {primaryText}
               </div>
             ) : null}
+            {performance ? (
+              <EmployeePerformanceIndicator
+                performance={performance}
+                compact
+                className="dashboard-choice-card__performance"
+              />
+            ) : null}
             {secondaryText ? (
               <small className="text-muted dashboard-choice-card__submeta">{secondaryText}</small>
             ) : null}
@@ -2504,6 +2668,7 @@ function DashboardLevelSummaryCard({
   title,
   metrics = [],
   details = [],
+  performance,
   photo,
   photoError,
   uploadBaseUrl,
@@ -2584,6 +2749,13 @@ function DashboardLevelSummaryCard({
         ))}
       </div>
 
+      {performance ? (
+        <EmployeePerformanceIndicator
+          performance={performance}
+          className="dashboard-level-card__performance"
+        />
+      ) : null}
+
       {details.length ? (
         <div className="dashboard-level-card__details">
           {details.map((detail) => (
@@ -2613,6 +2785,7 @@ function EmployeeMarkAccordionItem({
     String(employee?.employeeName || "").trim().charAt(0).toUpperCase() || "?";
   const showPhoto = employee?.photo && !photoError;
   const hasMark = employee?.overallMark !== null && employee?.overallMark !== undefined;
+  const performance = getDashboardPerformanceData(employee);
 
   return (
     <div className="card border-0 shadow-sm overflow-hidden dashboard-employee-card">
@@ -2653,7 +2826,14 @@ function EmployeeMarkAccordionItem({
               <div className="dashboard-mark-line text-primary justify-content-end">
                 {buildMarkLine(hasMark ? employee.overallMark : null)}
               </div>
-              <div className="small text-muted">
+              <div className="d-flex justify-content-end mt-2">
+                <EmployeePerformanceIndicator
+                  performance={performance}
+                  compact
+                  className="dashboard-performance--aligned-end"
+                />
+              </div>
+              <div className="small text-muted mt-2">
                 {buildScoredChecklistText(employee.scoredChecklistCount)}
               </div>
             </div>
@@ -2707,6 +2887,7 @@ function EmployeeMarkCard({ employee, photoError, uploadBaseUrl, onPhotoError })
     String(employee?.employeeName || "").trim().charAt(0).toUpperCase() || "?";
   const showPhoto = employee?.photo && !photoError;
   const hasMark = employee?.overallMark !== null && employee?.overallMark !== undefined;
+  const performance = getDashboardPerformanceData(employee);
 
   return (
     <div className="card h-100 border-0 bg-light dashboard-surface-card">
@@ -2734,7 +2915,11 @@ function EmployeeMarkCard({ employee, photoError, uploadBaseUrl, onPhotoError })
           <div className="dashboard-mark-line text-primary mt-1">
             {buildMarkLine(hasMark ? employee.overallMark : null)}
           </div>
-          <small className="text-muted">
+          <EmployeePerformanceIndicator
+            performance={performance}
+            className="dashboard-surface-card__performance mt-2"
+          />
+          <small className="text-muted d-block mt-2">
             {buildScoredChecklistText(employee.scoredChecklistCount)}
           </small>
         </div>
@@ -2894,3 +3079,4 @@ function EmployeeTaskSplitupTable({
     </div>
   );
 }
+

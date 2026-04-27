@@ -4,7 +4,7 @@ const Role = require("../models/Role");
 const Site = require("../models/Site");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { JWT_SECRET, JWT_EXPIRES_IN } = require("../middleware/auth");
+const { env } = require("../config/env");
 const { buildSessionUserPayload, resolvePrincipalAccess } = require("../services/permissionResolver.service");
 const DEFAULT_ADMIN_EMAIL = "admin@test.com";
 
@@ -82,7 +82,7 @@ const buildLoginResponse = async (account, accountType = "user") => {
   };
 };
 
-const countAdmins = () => User.countDocuments({ role: "admin" });
+const countAdmins = () => User.countDocuments({ role: "admin", isActive: { $ne: false } });
 const getRoleByKey = (key) => Role.findOne({ key }).lean();
 
 exports.login = async (req, res) => {
@@ -97,7 +97,10 @@ exports.login = async (req, res) => {
     }
 
     const normalizedLoginId = loginId.toLowerCase();
-    const user = await User.findOne({ email: normalizedLoginId }).populate(
+    const user = await User.findOne({
+      email: normalizedLoginId,
+      isActive: { $ne: false },
+    }).populate(
       "site",
       "name companyName"
     );
@@ -120,8 +123,8 @@ exports.login = async (req, res) => {
                 : Boolean(user.checklistMasterAccess),
             siteId: normalizeId(user.site),
           },
-          JWT_SECRET,
-          { expiresIn: JWT_EXPIRES_IN }
+          env.jwtSecret,
+          { expiresIn: env.jwtExpiresIn }
         );
 
         return res.json({
@@ -161,8 +164,8 @@ exports.login = async (req, res) => {
         email: employee.email || employee.employeeCode || "",
         employeeCode: employee.employeeCode || "",
       },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
+      env.jwtSecret,
+      { expiresIn: env.jwtExpiresIn }
     );
 
     return res.json({
@@ -181,7 +184,7 @@ exports.getUsers = async (req, res) => {
   try {
     const users = await User.find(
       {},
-      "name email role roleId checklistMasterAccess site createdAt updatedAt isDefaultAdmin accessScopeStrategy accessCompanyIds accessSiteIds accessDepartmentIds accessSubDepartmentIds accessEmployeeIds"
+      "name email role roleId checklistMasterAccess site createdAt updatedAt isDefaultAdmin accessScopeStrategy accessCompanyIds accessSiteIds accessDepartmentIds accessSubDepartmentIds accessEmployeeIds isActive"
     )
       .populate("site", "name companyName")
       .populate("roleId", "key name dashboardType scopeStrategy homeModuleKey")
@@ -232,7 +235,10 @@ exports.createUser = async (req, res) => {
       });
     }
 
-    const site = await Site.findById(siteId, "name companyName");
+    const site = await Site.findOne(
+      { _id: siteId, isActive: { $ne: false } },
+      "name companyName"
+    );
     if (!site) {
       return res.status(400).json({
         message: "Selected site is invalid",
@@ -360,7 +366,10 @@ exports.updateUser = async (req, res) => {
         });
       }
 
-      const site = await Site.findById(nextSiteId, "_id");
+      const site = await Site.findOne(
+        { _id: nextSiteId, isActive: { $ne: false } },
+        "_id"
+      );
       if (!site) {
         return res.status(400).json({
           message: "Selected site is invalid",
@@ -408,7 +417,7 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
-    if (user.role === "admin") {
+    if (user.role === "admin" && user.isActive !== false) {
       const adminCount = await countAdmins();
       if (adminCount <= 1) {
         return res.status(400).json({
@@ -417,10 +426,12 @@ exports.deleteUser = async (req, res) => {
       }
     }
 
-    await User.findByIdAndDelete(user._id);
+    user.isActive = false;
+    await user.save();
 
     return res.json({
       message: "User deleted",
+      isActive: false,
     });
   } catch (err) {
     console.error("DELETE USER ERROR:", err);

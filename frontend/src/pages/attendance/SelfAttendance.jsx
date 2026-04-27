@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+import { getSelfAttendance, submitSelfAttendanceAction } from "../../api/attendanceApi";
+import { usePermissions } from "../../context/usePermissions";
 import {
   formatAttendanceDuration,
   getAttendanceStatusBadgeClass,
@@ -9,6 +9,7 @@ import {
 
 export default function SelfAttendance() {
   const { user } = usePermissions();
+  const isEmployeePrincipal = user?.principalType === "employee";
   const [data, setData] = useState({
     settings: null,
     employee: null,
@@ -19,15 +20,11 @@ export default function SelfAttendance() {
   const [actionLoading, setActionLoading] = useState("");
   const [remarks, setRemarks] = useState("");
 
-  if (user?.principalType !== "employee") {
-    return <Navigate to="/attendance" replace />;
-  }
-
-  const loadSelfAttendance = async () => {
+  const loadSelfAttendance = useCallback(async () => {
     setLoading(true);
 
     try {
-      const response = await api.get("/attendance/self");
+      const response = await getSelfAttendance();
       setData({
         settings: response.data?.settings || null,
         employee: response.data?.employee || null,
@@ -47,17 +44,21 @@ export default function SelfAttendance() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    if (!isEmployeePrincipal) {
+      return undefined;
+    }
+
     void loadSelfAttendance();
-  }, []);
+  }, [isEmployeePrincipal, loadSelfAttendance]);
 
   const handleAction = async (actionKey) => {
     setActionLoading(actionKey);
 
     try {
-      await api.post(`/attendance/self/${actionKey}`, {
+      await submitSelfAttendanceAction(actionKey, {
         remarks,
       });
       setRemarks("");
@@ -77,6 +78,10 @@ export default function SelfAttendance() {
     Boolean(data.settings?.allowSelfCheckOut) &&
     Boolean(todayRecord?.checkInTime) &&
     !todayRecord?.checkOutTime;
+
+  if (!isEmployeePrincipal) {
+    return <Navigate to="/attendance" replace />;
+  }
 
   return (
     <div className="container-fluid mt-4 mb-5">
@@ -233,3 +238,4 @@ export default function SelfAttendance() {
     </div>
   );
 }
+

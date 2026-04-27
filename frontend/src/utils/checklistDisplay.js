@@ -152,11 +152,7 @@ export const formatChecklistScoreLabel = (value) => {
   if (markConfig.isNilApproval) return "Nil approval | No Mark";
   if (!markConfig.enableMark) return "Disabled";
 
-  return [
-    `Base ${formatMarkValue(markConfig.baseMark)}`,
-    `-${formatMarkValue(markConfig.delayPenaltyPerDay)}/day`,
-    `+${formatMarkValue(markConfig.advanceBonusPerDay)}/day`,
-  ].join(" | ");
+  return `Base ${formatMarkValue(markConfig.baseMark)}`;
 };
 
 export const getTaskMarkSummary = (task = {}) => {

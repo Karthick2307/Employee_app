@@ -203,6 +203,15 @@ const checklistSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -211,5 +220,12 @@ const checklistSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+const excludeSoftDeletedChecklists = function excludeSoftDeletedChecklists() {
+  this.where({ isDeleted: { $ne: true } });
+};
+
+checklistSchema.pre("countDocuments", excludeSoftDeletedChecklists);
+checklistSchema.pre(/^find/, excludeSoftDeletedChecklists);
 
 module.exports = mongoose.model("Checklist", checklistSchema);

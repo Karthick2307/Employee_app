@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createAttendanceRegularizationRequest,
+  getAttendanceOptions,
+  getAttendanceRegularizationRequests,
+  submitAttendanceRegularizationDecision,
+} from "../../api/attendanceApi";
+import { usePermissions } from "../../context/usePermissions";
 import {
   ATTENDANCE_STATUS_OPTIONS,
   REGULARIZATION_STATUS_OPTIONS,
@@ -42,13 +47,13 @@ export default function AttendanceRegularization() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const loadRequests = async (nextFilters = filters) => {
+  const loadRequests = useCallback(async (nextFilters = defaultFilters) => {
     setLoading(true);
 
     try {
-      const response = await api.get("/attendance/regularization", {
-        params: buildAttendanceQueryParams(nextFilters),
-      });
+      const response = await getAttendanceRegularizationRequests(
+        buildAttendanceQueryParams(nextFilters)
+      );
       setRequests(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error("Attendance regularization load failed:", error);
@@ -56,12 +61,12 @@ export default function AttendanceRegularization() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const loadOptions = async () => {
       try {
-        const response = await api.get("/attendance/options");
+        const response = await getAttendanceOptions();
         const employeeRows = Array.isArray(response.data?.employees) ? response.data.employees : [];
         setOptions({
           employees: employeeRows,
@@ -80,8 +85,8 @@ export default function AttendanceRegularization() {
     };
 
     void loadOptions();
-    void loadRequests(filters);
-  }, []);
+    void loadRequests(defaultFilters);
+  }, [isEmployeePrincipal, loadRequests]);
 
   const availableEmployees = useMemo(() => options.employees, [options.employees]);
 
@@ -99,7 +104,7 @@ export default function AttendanceRegularization() {
     setSaving(true);
 
     try {
-      await api.post("/attendance/regularization", {
+      await createAttendanceRegularizationRequest({
         employeeId: form.employeeId || undefined,
         attendanceDate: form.attendanceDate,
         requestedCheckInTime: form.requestedCheckInTime || null,
@@ -113,7 +118,7 @@ export default function AttendanceRegularization() {
         ...defaultForm,
         employeeId: isEmployeePrincipal ? current.employeeId : "",
       }));
-      await loadRequests();
+      await loadRequests(filters);
     } catch (error) {
       console.error("Attendance regularization save failed:", error);
       alert(error.response?.data?.message || "Failed to submit regularization request");
@@ -129,10 +134,10 @@ export default function AttendanceRegularization() {
     );
 
     try {
-      await api.patch(`/attendance/regularization/${requestId}/${actionKey}`, {
+      await submitAttendanceRegularizationDecision(requestId, actionKey, {
         decisionRemarks: decisionRemarks || "",
       });
-      await loadRequests();
+      await loadRequests(filters);
     } catch (error) {
       console.error(`Attendance regularization ${actionKey} failed:`, error);
       alert(error.response?.data?.message || `Failed to ${actionKey} request`);
@@ -399,3 +404,4 @@ export default function AttendanceRegularization() {
     </div>
   );
 }
+

@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+﻿import { useEffect, useMemo, useState } from "react";
+import {
+  exportMonthlyAttendanceReport,
+  getAttendanceOptions,
+  getMonthlyAttendanceReport,
+} from "../../api/attendanceApi";
+import { usePermissions } from "../../context/usePermissions";
 import {
   buildAttendanceQueryParams,
   getCurrentMonthValue,
@@ -51,7 +55,7 @@ export default function AttendanceReport() {
   useEffect(() => {
     const loadOptions = async () => {
       try {
-        const response = await api.get("/attendance/options");
+        const response = await getAttendanceOptions();
         setOptions({
           companies: Array.isArray(response.data?.companies) ? response.data.companies : [],
           sites: Array.isArray(response.data?.sites) ? response.data.sites : [],
@@ -74,9 +78,9 @@ export default function AttendanceReport() {
       setLoading(true);
 
       try {
-        const response = await api.get("/attendance/reports/monthly", {
-          params: buildAttendanceQueryParams(appliedFilters),
-        });
+        const response = await getMonthlyAttendanceReport(
+          buildAttendanceQueryParams(appliedFilters)
+        );
         setReport({
           summary: response.data?.summary || {},
           rows: Array.isArray(response.data?.rows) ? response.data.rows : [],
@@ -124,17 +128,22 @@ export default function AttendanceReport() {
         }
         return true;
       }),
-    [filters.departmentId, filters.siteId, filters.subDepartmentId, options.employees]
+    [
+      filters.companyName,
+      filters.departmentId,
+      filters.siteId,
+      filters.subDepartmentId,
+      options.employees,
+    ]
   );
 
   const handleExport = async () => {
     setExporting(true);
 
     try {
-      const response = await api.get("/attendance/reports/monthly/export/excel", {
-        params: buildAttendanceQueryParams(appliedFilters),
-        responseType: "blob",
-      });
+      const response = await exportMonthlyAttendanceReport(
+        buildAttendanceQueryParams(appliedFilters)
+      );
       const blob = new Blob([response.data], {
         type: response.headers?.["content-type"] || undefined,
       });
@@ -438,3 +447,4 @@ export default function AttendanceReport() {
     </div>
   );
 }
+

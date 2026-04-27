@@ -86,10 +86,26 @@ const roundMarkValue = (value) => {
   return Math.round(parsedValue * 100) / 100;
 };
 
+const calculatePerformancePercentage = (overallMark, targetMark) => {
+  const normalizedOverallMark = Number(overallMark);
+  const normalizedTargetMark = Number(targetMark);
+
+  if (!Number.isFinite(normalizedOverallMark) || !Number.isFinite(normalizedTargetMark)) {
+    return null;
+  }
+
+  if (normalizedTargetMark <= 0) {
+    return null;
+  }
+
+  return roundMarkValue((normalizedOverallMark / normalizedTargetMark) * 100);
+};
+
 const summarizeEmployeeMarks = (employees = []) => {
   let totalMark = 0;
   let hasScoredMark = false;
   let scoredChecklistCount = 0;
+  let targetMark = 0;
 
   for (const employee of employees) {
     const overallMark = Number(employee?.overallMark);
@@ -99,11 +115,20 @@ const summarizeEmployeeMarks = (employees = []) => {
     }
 
     scoredChecklistCount += Number(employee?.scoredChecklistCount || 0);
+    targetMark += Number(employee?.targetMark || 0);
   }
 
+  const normalizedOverallMark = hasScoredMark ? roundMarkValue(totalMark) : null;
+  const normalizedTargetMark = roundMarkValue(targetMark) ?? 0;
+
   return {
-    overallMark: hasScoredMark ? roundMarkValue(totalMark) : null,
+    overallMark: normalizedOverallMark,
     scoredChecklistCount,
+    targetMark: normalizedTargetMark,
+    performancePercentage: calculatePerformancePercentage(
+      normalizedOverallMark,
+      normalizedTargetMark
+    ),
   };
 };
 
@@ -225,6 +250,11 @@ const buildEmployeeDashboardRow = (employeeDoc, employeeMarkMap) => {
     subDepartmentDisplay,
     overallMark: roundMarkValue(markSummary?.overallMark),
     scoredChecklistCount: Number(markSummary?.scoredChecklistCount || 0),
+    targetMark: roundMarkValue(markSummary?.targetMark) ?? 0,
+    performancePercentage: calculatePerformancePercentage(
+      roundMarkValue(markSummary?.overallMark),
+      roundMarkValue(markSummary?.targetMark) ?? 0
+    ),
   };
 };
 
@@ -253,6 +283,8 @@ const buildDepartmentChoices = (departmentDocs = [], employees = []) => {
         ).length,
         overallMark: markSummary.overallMark,
         scoredChecklistCount: markSummary.scoredChecklistCount,
+        targetMark: markSummary.targetMark,
+        performancePercentage: markSummary.performancePercentage,
       };
     })
     .filter((department) => department.employeeCount > 0)
@@ -285,6 +317,8 @@ const buildSubDepartmentChoices = (departmentDoc, employees = []) => {
         employeeCount: subDepartmentEmployees.length,
         overallMark: markSummary.overallMark,
         scoredChecklistCount: markSummary.scoredChecklistCount,
+        targetMark: markSummary.targetMark,
+        performancePercentage: markSummary.performancePercentage,
       };
     })
     .filter((subDepartment) => subDepartment.employeeCount > 0)
@@ -333,6 +367,8 @@ const buildCompanyChoices = (companyDocs = [], siteDocs = [], employees = []) =>
         employeeCount: companyEmployees.length,
         overallMark: markSummary.overallMark,
         scoredChecklistCount: markSummary.scoredChecklistCount,
+        targetMark: markSummary.targetMark,
+        performancePercentage: markSummary.performancePercentage,
       };
     })
     .sort(sortByOverallMarkDescending);
@@ -363,6 +399,8 @@ const buildSiteChoices = (siteDocs = [], employees = [], companyName = "") => {
         employeeCount: siteEmployees.length,
         overallMark: markSummary.overallMark,
         scoredChecklistCount: markSummary.scoredChecklistCount,
+        targetMark: markSummary.targetMark,
+        performancePercentage: markSummary.performancePercentage,
       };
     })
     .sort(sortByOverallMarkDescending);
@@ -700,6 +738,11 @@ const buildDashboardSnapshot = async (user = null, access = null) => {
           _id: "$assignedEmployee",
           overallMark: { $sum: "$finalMark" },
           scoredChecklistCount: { $sum: 1 },
+          targetMark: {
+            $sum: {
+              $ifNull: ["$baseMark", 0],
+            },
+          },
         },
       },
     ]),
@@ -711,6 +754,7 @@ const buildDashboardSnapshot = async (user = null, access = null) => {
       {
         overallMark: row?.overallMark,
         scoredChecklistCount: row?.scoredChecklistCount,
+        targetMark: row?.targetMark,
       },
     ])
   );
@@ -1279,6 +1323,8 @@ exports.getCompanySiteEmployeeMarkDrilldown = async (req, res) => {
           employeeCount: 1,
           overallMark: employee.overallMark,
           scoredChecklistCount: employee.scoredChecklistCount,
+          targetMark: employee.targetMark,
+          performancePercentage: employee.performancePercentage,
           isActive: employee.isActive !== false,
         })),
       },

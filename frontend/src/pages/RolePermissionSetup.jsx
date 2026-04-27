@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
-import { usePermissions } from "../context/PermissionContext";
+import { usePermissions } from "../context/usePermissions";
 
 const actionFieldMap = {
   view: "canView",
@@ -905,3 +905,4 @@ export default function RolePermissionSetup() {
     </div>
   );
 }
+

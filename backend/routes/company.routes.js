@@ -61,7 +61,7 @@ const resolveDirectorNames = async ({ directorEmployeeIds, fallbackDirectorNames
   }
 
   const employees = await Employee.find(
-    { _id: { $in: employeeIds } },
+    { _id: { $in: employeeIds }, isActive: { $ne: false } },
     "employeeCode employeeName"
   );
 
@@ -88,7 +88,10 @@ const resolveDirectorNames = async ({ directorEmployeeIds, fallbackDirectorNames
 
 router.get("/", auth, requirePermission("company_master", "view"), async (req, res) => {
   try {
-    const rows = await Company.find(await buildCompanyScopeFilter(req.access || {})).sort({ name: 1 });
+    const rows = await Company.find({
+      ...(await buildCompanyScopeFilter(req.access || {})),
+      isActive: { $ne: false },
+    }).sort({ name: 1 });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load companies" });
@@ -125,7 +128,10 @@ router.put("/:id", auth, requirePermission("company_master", "edit"), async (req
     if (!name) return res.status(400).json({ message: "Company name is required" });
     if (directorError) return res.status(400).json({ message: directorError });
 
-    const existing = await Company.findById(req.params.id);
+    const existing = await Company.findOne({
+      _id: req.params.id,
+      isActive: { $ne: false },
+    });
     if (!existing) return res.status(404).json({ message: "Company not found" });
 
     const previousName = existing.name;
@@ -148,18 +154,22 @@ router.put("/:id", auth, requirePermission("company_master", "edit"), async (req
 
 router.delete("/:id", auth, requirePermission("company_master", "delete"), async (req, res) => {
   try {
-    const existing = await Company.findById(req.params.id);
+    const existing = await Company.findOne({
+      _id: req.params.id,
+      isActive: { $ne: false },
+    });
     if (!existing) return res.status(404).json({ message: "Company not found" });
 
-    const inUse = await Site.exists({ companyName: existing.name });
+    const inUse = await Site.exists({ companyName: existing.name, isActive: { $ne: false } });
     if (inUse) {
       return res.status(400).json({
         message: "Cannot delete company while it is used in Site Master",
       });
     }
 
-    await existing.deleteOne();
-    res.json({ success: true });
+    existing.isActive = false;
+    await existing.save();
+    res.json({ success: true, isActive: false });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete company" });
   }

@@ -60,6 +60,18 @@
   }
 }
 
+@keyframes dashboardProgressReveal {
+  from {
+    transform: scaleX(0);
+    opacity: 0.72;
+  }
+
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
 .dashboard-shell {
   position: relative;
   isolation: isolate;
@@ -717,6 +729,128 @@
   padding-bottom: 0.05em;
 }
 
+.dashboard-performance {
+  --dashboard-performance-start: #94a3b8;
+  --dashboard-performance-end: #cbd5e1;
+  --dashboard-performance-glow: rgba(148, 163, 184, 0.22);
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.dashboard-performance--danger {
+  --dashboard-performance-start: #dc2626;
+  --dashboard-performance-end: #f97316;
+  --dashboard-performance-glow: rgba(249, 115, 22, 0.24);
+}
+
+.dashboard-performance--warning {
+  --dashboard-performance-start: #f59e0b;
+  --dashboard-performance-end: #facc15;
+  --dashboard-performance-glow: rgba(250, 204, 21, 0.24);
+}
+
+.dashboard-performance--success {
+  --dashboard-performance-start: #16a34a;
+  --dashboard-performance-end: #22c55e;
+  --dashboard-performance-glow: rgba(34, 197, 94, 0.24);
+}
+
+.dashboard-performance__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dashboard-performance__label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.dashboard-performance__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.08rem;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  background: linear-gradient(
+    135deg,
+    var(--dashboard-performance-start),
+    var(--dashboard-performance-end)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.dashboard-performance__track {
+  position: relative;
+  overflow: hidden;
+  height: 0.56rem;
+  border-radius: 999px;
+  background: linear-gradient(145deg, rgba(226, 232, 240, 0.96), rgba(255, 255, 255, 0.72));
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.08),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.dashboard-performance__track::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  pointer-events: none;
+}
+
+.dashboard-performance__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    var(--dashboard-performance-start),
+    var(--dashboard-performance-end)
+  );
+  box-shadow: 0 12px 24px var(--dashboard-performance-glow);
+  transform-origin: left center;
+  animation: dashboardProgressReveal 0.82s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dashboard-performance--compact {
+  gap: 0.32rem;
+  width: min(220px, 100%);
+}
+
+.dashboard-performance--compact .dashboard-performance__label {
+  font-size: 0.64rem;
+}
+
+.dashboard-performance--compact .dashboard-performance__value {
+  font-size: 0.94rem;
+}
+
+.dashboard-performance--compact .dashboard-performance__track {
+  height: 0.46rem;
+}
+
+.dashboard-performance--aligned-end {
+  width: min(220px, 100%);
+}
+
+.dashboard-choice-card__performance,
+.dashboard-level-card__performance,
+.dashboard-surface-card__performance {
+  margin-top: 0.65rem;
+}
+
 .dashboard-level-layout {
   align-items: flex-start;
 }
@@ -1323,6 +1457,47 @@
   color: transparent;
 }
 
+.dashboard-shell .dashboard-choice-card:hover .dashboard-performance__label,
+.dashboard-shell .dashboard-surface-card:hover .dashboard-performance__label,
+.dashboard-shell .dashboard-employee-card:hover .dashboard-performance__label,
+.dashboard-level-card--interactive:hover .dashboard-performance__label {
+  color: var(--dashboard-hover-muted);
+}
+
+.dashboard-shell .dashboard-choice-card:hover .dashboard-performance__value,
+.dashboard-shell .dashboard-surface-card:hover .dashboard-performance__value,
+.dashboard-shell .dashboard-employee-card:hover .dashboard-performance__value,
+.dashboard-level-card--interactive:hover .dashboard-performance__value {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), var(--dashboard-hover-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.dashboard-shell .dashboard-choice-card:hover .dashboard-performance__track,
+.dashboard-shell .dashboard-surface-card:hover .dashboard-performance__track,
+.dashboard-shell .dashboard-employee-card:hover .dashboard-performance__track,
+.dashboard-level-card--interactive:hover .dashboard-performance__track {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.08);
+}
+
+.dashboard-shell .dashboard-choice-card:hover .dashboard-performance__track::after,
+.dashboard-shell .dashboard-surface-card:hover .dashboard-performance__track::after,
+.dashboard-shell .dashboard-employee-card:hover .dashboard-performance__track::after,
+.dashboard-level-card--interactive:hover .dashboard-performance__track::after {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.dashboard-shell .dashboard-choice-card:hover .dashboard-performance__fill,
+.dashboard-shell .dashboard-surface-card:hover .dashboard-performance__fill,
+.dashboard-shell .dashboard-employee-card:hover .dashboard-performance__fill,
+.dashboard-level-card--interactive:hover .dashboard-performance__fill {
+  filter: saturate(1.02) brightness(1.06);
+}
+
 .dashboard-shell .dashboard-employee-card__trigger {
   transition:
     background 0.22s ease,
@@ -1364,6 +1539,10 @@
   .dashboard-choice-card__top {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .dashboard-performance--aligned-end {
+    width: min(190px, 100%);
   }
 }
 
@@ -1453,6 +1632,10 @@
     padding: 1rem;
   }
 
+  .dashboard-performance__header {
+    gap: 0.5rem;
+  }
+
   .dashboard-mini-action {
     padding: 0.48rem 0.72rem;
   }
@@ -1483,6 +1666,7 @@
   .dashboard-level-sidebar__item-count,
   .dashboard-level-card,
   .dashboard-level-card__metric,
+  .dashboard-performance__fill,
   .dashboard-shell .dashboard-panel-card,
   .dashboard-shell .dashboard-choice-card,
   .dashboard-shell .dashboard-employee-card,

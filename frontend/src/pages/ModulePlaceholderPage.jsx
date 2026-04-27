@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
-import { usePermissions } from "../context/PermissionContext";
+﻿import { Link } from "react-router-dom";
+import { usePermissions } from "../context/usePermissions";
 
 export default function ModulePlaceholderPage({
   title = "Module",
@@ -23,3 +23,4 @@ export default function ModulePlaceholderPage({
     </div>
   );
 }
+

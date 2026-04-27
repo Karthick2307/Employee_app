@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+import { usePermissions } from "../../context/usePermissions";
 import { formatDepartmentList } from "../../utils/departmentDisplay";
 import {
   formatApprovalWorkflowLabel,
   formatApprovalTypeLabel,
+  formatChecklistScoreLabel,
   formatChecklistTaskStatus,
   formatCurrentApproverLabel,
   formatDateTime,
@@ -476,6 +477,7 @@ export default function ChecklistReport() {
               <th>Submitted At</th>
               <th>Submission Status</th>
               <th>Approval Type</th>
+              <th>Scoring</th>
               <th>Time Status</th>
               <th>Delay/Advance</th>
               <th>Adjustment</th>
@@ -488,7 +490,7 @@ export default function ChecklistReport() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan="20" className="text-center">
+                <td colSpan="21" className="text-center">
                   Loading checklist task report...
                 </td>
               </tr>
@@ -496,7 +498,7 @@ export default function ChecklistReport() {
 
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan="20" className="text-center">
+                <td colSpan="21" className="text-center">
                   No checklist task records found
                 </td>
               </tr>
@@ -543,6 +545,7 @@ export default function ChecklistReport() {
                       {formatApprovalTypeLabel(row)}
                     </span>
                   </td>
+                  <td>{formatChecklistScoreLabel(row)}</td>
                   <td>
                     <span
                       className={`badge ${getTimelinessBadgeClass(
@@ -590,3 +593,4 @@ export default function ChecklistReport() {
     </div>
   );
 }
+

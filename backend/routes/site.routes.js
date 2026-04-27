@@ -72,7 +72,7 @@ const resolveHeadNames = async ({
   }
 
   const employees = await Employee.find(
-    { _id: { $in: employeeIds } },
+    { _id: { $in: employeeIds }, isActive: { $ne: false } },
     "employeeCode employeeName"
   );
 
@@ -159,10 +159,10 @@ const canAccessScopedSite = async (req, siteId) => {
 
 router.get("/", auth, requirePermission("site_master", "view"), async (req, res) => {
   try {
-    const rows = await Site.find(await buildSiteScopeFilter(req.access || {})).sort({
-      companyName: 1,
-      name: 1,
-    });
+    const rows = await Site.find({
+      ...(await buildSiteScopeFilter(req.access || {})),
+      isActive: { $ne: false },
+    }).sort({ companyName: 1, name: 1 });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load sites" });
@@ -205,7 +205,10 @@ router.post("/", auth, requirePermission("site_master", "add"), async (req, res)
       return res.status(400).json({ message: siteLeadError });
     }
 
-    const companyExists = await Company.exists({ name: companyName });
+    const companyExists = await Company.exists({
+      name: companyName,
+      isActive: { $ne: false },
+    });
     if (!companyExists) {
       return res.status(400).json({ message: "Selected company is invalid" });
     }
@@ -254,13 +257,16 @@ router.put("/:id", auth, requirePermission("site_master", "edit"), async (req, r
     if (headError) return res.status(400).json({ message: headError });
     if (siteLeadError) return res.status(400).json({ message: siteLeadError });
 
-    const companyExists = await Company.exists({ name: companyName });
+    const companyExists = await Company.exists({
+      name: companyName,
+      isActive: { $ne: false },
+    });
     if (!companyExists) {
       return res.status(400).json({ message: "Selected company is invalid" });
     }
 
-    const updated = await Site.findByIdAndUpdate(
-      req.params.id,
+    const updated = await Site.findOneAndUpdate(
+      { _id: req.params.id, isActive: { $ne: false } },
       { companyName, name, headNames, siteLeadNames },
       { new: true, runValidators: true }
     );
@@ -424,9 +430,15 @@ router.delete("/:id", auth, requirePermission("site_master", "delete"), async (r
       return res.status(404).json({ message: "Site not found" });
     }
 
-    const deleted = await Site.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: "Site not found" });
-    res.json({ success: true });
+    const site = await Site.findOne({
+      _id: req.params.id,
+      isActive: { $ne: false },
+    });
+    if (!site) return res.status(404).json({ message: "Site not found" });
+
+    site.isActive = false;
+    await site.save();
+    res.json({ success: true, isActive: false });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete site" });
   }

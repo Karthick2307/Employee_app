@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../../api/axios";
+import { getAttendanceDashboard, getAttendanceOptions } from "../../api/attendanceApi";
 import {
   ATTENDANCE_STATUS_OPTIONS,
   buildAttendanceQueryParams,
@@ -55,7 +55,7 @@ export default function AttendanceDashboard() {
   useEffect(() => {
     const loadOptions = async () => {
       try {
-        const response = await api.get("/attendance/options");
+        const response = await getAttendanceOptions();
         setOptions({
           companies: Array.isArray(response.data?.companies) ? response.data.companies : [],
           sites: Array.isArray(response.data?.sites) ? response.data.sites : [],
@@ -85,9 +85,9 @@ export default function AttendanceDashboard() {
       setLoading(true);
 
       try {
-        const response = await api.get("/attendance/dashboard", {
-          params: buildAttendanceQueryParams(appliedFilters),
-        });
+        const response = await getAttendanceDashboard(
+          buildAttendanceQueryParams(appliedFilters)
+        );
         setDashboard({
           cards: response.data?.cards || {},
           siteWise: Array.isArray(response.data?.siteWise) ? response.data.siteWise : [],
@@ -147,7 +147,13 @@ export default function AttendanceDashboard() {
         }
         return true;
       }),
-    [filters.departmentId, filters.siteId, filters.subDepartmentId, options.employees]
+    [
+      filters.companyName,
+      filters.departmentId,
+      filters.siteId,
+      filters.subDepartmentId,
+      options.employees,
+    ]
   );
 
   return (

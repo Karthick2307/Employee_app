@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+import { usePermissions } from "../../context/usePermissions";
 import {
   formatApprovalLabel,
   formatChecklistDependencyLabel,
@@ -251,3 +251,4 @@ function Info({ label, value }) {
     </div>
   );
 }
+

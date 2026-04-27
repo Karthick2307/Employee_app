@@ -1,10 +1,12 @@
 const jwt = require("jsonwebtoken");
 const Employee = require("../models/Employee");
 const User = require("../models/User");
+const { env } = require("../config/env");
+const { createHttpError } = require("../utils/httpError");
 const { buildSessionUserPayload, resolvePrincipalAccess } = require("../services/permissionResolver.service");
 
-const JWT_SECRET = process.env.JWT_SECRET || "secret123";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "30d";
+const JWT_SECRET = env.jwtSecret;
+const JWT_EXPIRES_IN = env.jwtExpiresIn;
 
 const verifyAuthToken = (token) => jwt.verify(token, JWT_SECRET);
 
@@ -23,19 +25,17 @@ const getPrincipalTypeFromToken = (decoded = {}) => {
 
 const buildPrincipalQuery = (principalType) => {
   if (principalType === "employee") {
-    return (id) => Employee.findById(id);
+    return (id) => Employee.findOne({ _id: id, isActive: { $ne: false } });
   }
 
-  return (id) => User.findById(id);
+  return (id) => User.findOne({ _id: id, isActive: { $ne: false } });
 };
 
 exports.auth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({
-      message: "No token provided",
-    });
+    return next(createHttpError("No token provided", 401));
   }
 
   try {
@@ -52,9 +52,7 @@ exports.auth = async (req, res, next) => {
     const principal = await principalQuery.lean();
 
     if (!principal) {
-      return res.status(401).json({
-        message: "Invalid or expired token",
-      });
+      return next(createHttpError("Invalid or expired token", 401));
     }
 
     const access = await resolvePrincipalAccess({ principalType, principal });
@@ -68,9 +66,7 @@ exports.auth = async (req, res, next) => {
     next();
   } catch (err) {
     console.error("AUTH ERROR:", err);
-    return res.status(401).json({
-      message: "Invalid or expired token",
-    });
+    return next(createHttpError("Invalid or expired token", 401));
   }
 };
 
@@ -79,9 +75,7 @@ exports.auth = async (req, res, next) => {
  */
 exports.isAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({
-      message: "Admin only access",
-    });
+    return next(createHttpError("Admin only access", 403));
   }
   next();
 };

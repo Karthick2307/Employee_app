@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import DashboardFeedbackWidget from "../components/DashboardFeedbackWidget";
 import { formatMarkValue } from "../utils/checklistDisplay";
@@ -61,6 +62,7 @@ const buildFilterParams = (filters) =>
   );
 
 export default function Dashboard2Summary() {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState(defaultFilters);
   const [summaryData, setSummaryData] = useState(emptySummaryData);
   const [loading, setLoading] = useState(true);
@@ -140,12 +142,24 @@ export default function Dashboard2Summary() {
   return (
     <div className="container mt-4 mb-5">
       <div className="page-intro-card mb-4">
-        <div className="page-kicker">Dashboard</div>
-        <h4 className="mb-1">Marks Summary</h4>
-        <p className="page-subtitle mb-0">
-          Follow the hierarchy filters to narrow checklist marks from company level down to task
-          level.
-        </p>
+        <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+          <div>
+            <div className="page-kicker">Dashboard</div>
+            <h4 className="mb-1">Marks Summary</h4>
+            <p className="page-subtitle mb-0">
+              Follow the hierarchy filters to narrow checklist marks from company level down to task
+              level.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm"
+            onClick={() => navigate("/welcome?preview=1")}
+          >
+            Back to Welcome
+          </button>
+        </div>
       </div>
 
       <div className="filter-card mb-4">

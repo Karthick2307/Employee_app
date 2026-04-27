@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import ChecklistAssistantWidget from "./components/ChecklistAssistantWidget";
-import { PermissionProvider, usePermissions } from "./context/PermissionContext";
+import { PermissionProvider } from "./context/PermissionContext";
+import { usePermissions } from "./context/usePermissions";
 
 import AccessDenied from "./pages/AccessDenied";
 import Dashboard from "./pages/Dashboard";
@@ -18,8 +19,8 @@ import ChatModule from "./pages/ChatModule";
 import RolePermissionSetup from "./pages/RolePermissionSetup";
 import UsersAdmin from "./pages/UsersAdmin";
 import IntroWelcomeScreen from "./pages/IntroWelcomeScreen";
-import AttendanceWelcomeScreen from "./pages/AttendanceWelcomeScreen";
-import WelcomeScreen from "./pages/WelcomeScreen";
+import ComplaintsDashboard from "./pages/complaints/ComplaintsDashboard";
+import ComplaintsReport from "./pages/complaints/ComplaintsReport";
 import ChecklistList from "./pages/checklists/ChecklistList";
 import ChecklistCreate from "./pages/checklists/ChecklistCreate";
 import ChecklistView from "./pages/checklists/ChecklistView";
@@ -27,6 +28,10 @@ import ChecklistTaskView from "./pages/checklists/ChecklistTaskView";
 import ChecklistApprovals from "./pages/checklists/ChecklistApprovals";
 import ChecklistAdminApprovals from "./pages/checklists/ChecklistAdminApprovals";
 import ChecklistReport from "./pages/reports/ChecklistReport";
+import PollList from "./pages/polls/PollList";
+import PollCreate from "./pages/polls/PollCreate";
+import PollResponse from "./pages/polls/PollResponse";
+import PollReport from "./pages/polls/PollReport";
 
 import CompanyMaster from "./pages/masters/CompanyMaster";
 import DepartmentMaster from "./pages/masters/DepartmentMaster";
@@ -46,11 +51,11 @@ import {
 
 const hasSession = () => Boolean(localStorage.getItem("token")) && Boolean(getStoredUser());
 
-function FullPageLoader() {
+export function FullPageLoader() {
   return <div className="container py-5 text-center">Loading workspace permissions...</div>;
 }
 
-function PrivateRoute({ children }) {
+export function PrivateRoute({ children }) {
   if (!hasSession()) {
     return <Navigate to="/login" replace />;
   }
@@ -62,8 +67,11 @@ function PrivateRoute({ children }) {
   return children;
 }
 
-function WelcomeRoute({ children }) {
+export function WelcomeRoute({ children }) {
+  const location = useLocation();
   const { loading, getHomePath } = usePermissions();
+  const searchParams = new URLSearchParams(location.search);
+  const isWelcomePreview = searchParams.get("preview") === "1";
 
   if (!hasSession()) {
     return <Navigate to="/login" replace />;
@@ -73,14 +81,14 @@ function WelcomeRoute({ children }) {
     return <FullPageLoader />;
   }
 
-  if (!shouldShowPostLoginWelcome()) {
+  if (!shouldShowPostLoginWelcome() && !isWelcomePreview) {
     return <Navigate to={getHomePath()} replace />;
   }
 
   return children;
 }
 
-function PermissionRoute({ children, moduleKey, actionKey = "view", anyOf = [] }) {
+export function PermissionRoute({ children, moduleKey, actionKey = "view", anyOf = [] }) {
   const location = useLocation();
   const { loading, can, canAny } = usePermissions();
 
@@ -184,20 +192,12 @@ function AppRoutes() {
 
           <Route
             path="/welcome/attendance"
-            element={
-              <WelcomeRoute>
-                <AttendanceWelcomeScreen />
-              </WelcomeRoute>
-            }
+            element={<Navigate to="/welcome" replace />}
           />
 
           <Route
             path="/welcome/checklist"
-            element={
-              <WelcomeRoute>
-                <WelcomeScreen />
-              </WelcomeRoute>
-            }
+            element={<Navigate to="/welcome" replace />}
           />
 
           <Route
@@ -406,6 +406,47 @@ function AppRoutes() {
           />
 
           <Route
+            path="/polls"
+            element={
+              <PermissionRoute
+                anyOf={[
+                  { moduleKey: "poll_master", actionKey: "view" },
+                  { moduleKey: "assigned_polls", actionKey: "view" },
+                ]}
+              >
+                <PollList />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/polls/create"
+            element={
+              <PermissionRoute moduleKey="poll_master" actionKey="add">
+                <PollCreate />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/polls/edit/:id"
+            element={
+              <PermissionRoute moduleKey="poll_master" actionKey="edit">
+                <PollCreate />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/polls/my/:assignmentId"
+            element={
+              <PermissionRoute moduleKey="assigned_polls" actionKey="view">
+                <PollResponse />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
             path="/checklists/create"
             element={
               <PermissionRoute moduleKey="checklist_master" actionKey="add">
@@ -499,6 +540,24 @@ function AppRoutes() {
           />
 
           <Route
+            path="/complaints"
+            element={
+              <PermissionRoute moduleKey="complaints" actionKey="view">
+                <ComplaintsDashboard />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/complaints/reports"
+            element={
+              <PermissionRoute moduleKey="complaints" actionKey="view">
+                <ComplaintsReport />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
             path="/chat"
             element={
               <PermissionRoute moduleKey="site_chat" actionKey="view">
@@ -525,6 +584,15 @@ function AppRoutes() {
             element={
               <PermissionRoute moduleKey="reports" actionKey="report_view">
                 <ChecklistReport />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/reports/polls"
+            element={
+              <PermissionRoute moduleKey="poll_master" actionKey="report_view">
+                <PollReport />
               </PermissionRoute>
             }
           />

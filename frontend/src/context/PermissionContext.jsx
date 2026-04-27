@@ -1,31 +1,65 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import api from "../api/axios";
-import { getPostLoginDestination, getStoredUser } from "../utils/postLoginWelcome";
-
-const PermissionContext = createContext(null);
+import { useEffect, useMemo, useState } from "react";
+import { getCurrentPermissionProfile } from "../api/permissionApi";
+import {
+  clearPostLoginWelcomeSession,
+  getPostLoginDestination,
+  getStoredUser,
+} from "../utils/postLoginWelcome";
+import PermissionContext from "./permissionContextStore";
 
 const hasSession = () => Boolean(localStorage.getItem("token")) && Boolean(getStoredUser());
 
-const defaultState = {
-  loading: false,
-  user: getStoredUser(),
-  role: null,
-  modules: [],
-  permissions: {},
-  scope: {
-    strategy: "mapped",
-    companyIds: [],
-    siteIds: [],
-    departmentIds: [],
-    subDepartmentIds: [],
-    employeeIds: [],
-  },
-  homePath: getPostLoginDestination(getStoredUser()),
+const clearStoredSession = () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  clearPostLoginWelcomeSession();
+};
+
+const defaultScope = {
+  strategy: "mapped",
+  companyIds: [],
+  siteIds: [],
+  departmentIds: [],
+  subDepartmentIds: [],
+  employeeIds: [],
+};
+
+const buildDefaultState = () => {
+  const storedUser = getStoredUser();
+
+  return {
+    loading: false,
+    user: storedUser,
+    role: null,
+    modules: [],
+    permissions: {},
+    scope: defaultScope,
+    homePath: getPostLoginDestination(storedUser),
+  };
+};
+
+const buildPermissionState = (responseData = {}, fallbackUser = getStoredUser()) => {
+  const nextUser = responseData.user || fallbackUser;
+
+  if (nextUser) {
+    localStorage.setItem("user", JSON.stringify(nextUser));
+  }
+
+  return {
+    loading: false,
+    user: nextUser,
+    role: responseData.role || null,
+    modules: Array.isArray(responseData.modules) ? responseData.modules : [],
+    permissions: responseData.permissions || {},
+    scope: responseData.scope || defaultScope,
+    homePath:
+      responseData.homePath || nextUser?.homePath || getPostLoginDestination(nextUser),
+  };
 };
 
 export function PermissionProvider({ children }) {
   const [state, setState] = useState(() => ({
-    ...defaultState,
+    ...buildDefaultState(),
     loading: hasSession(),
   }));
 
@@ -33,10 +67,6 @@ export function PermissionProvider({ children }) {
     let active = true;
 
     if (!hasSession()) {
-      setState({
-        ...defaultState,
-        loading: false,
-      });
       return undefined;
     }
 
@@ -47,39 +77,18 @@ export function PermissionProvider({ children }) {
       }));
 
       try {
-        const response = await api.get("/permissions/me");
+        const response = await getCurrentPermissionProfile();
         if (!active) return;
 
-        const nextUser = response.data?.user || getStoredUser();
-        if (nextUser) {
-          localStorage.setItem("user", JSON.stringify(nextUser));
-        }
-
-        setState({
-          loading: false,
-          user: nextUser,
-          role: response.data?.role || null,
-          modules: Array.isArray(response.data?.modules) ? response.data.modules : [],
-          permissions: response.data?.permissions || {},
-          scope: response.data?.scope || defaultState.scope,
-          homePath:
-            response.data?.homePath ||
-            nextUser?.homePath ||
-            getPostLoginDestination(nextUser),
-        });
+        setState(buildPermissionState(response.data));
       } catch (error) {
         if (!active) return;
 
-        const fallbackUser = getStoredUser();
-        setState({
-          loading: false,
-          user: fallbackUser,
-          role: null,
-          modules: [],
-          permissions: {},
-          scope: defaultState.scope,
-          homePath: getPostLoginDestination(fallbackUser),
-        });
+        if ([401, 403].includes(error?.response?.status)) {
+          clearStoredSession();
+        }
+
+        setState(buildDefaultState());
       }
     };
 
@@ -91,7 +100,9 @@ export function PermissionProvider({ children }) {
   }, []);
 
   const value = useMemo(() => {
-    const moduleMap = new Map((state.modules || []).map((moduleItem) => [moduleItem.key, moduleItem]));
+    const moduleMap = new Map(
+      (state.modules || []).map((moduleItem) => [moduleItem.key, moduleItem])
+    );
 
     const can = (moduleKey, actionKey = "view") => {
       const permissionRow = state.permissions?.[moduleKey];
@@ -120,9 +131,7 @@ export function PermissionProvider({ children }) {
     const getVisibleModules = () =>
       (state.modules || []).filter((moduleItem) => can(moduleItem.key, "view"));
     const getHomePath = () =>
-      state.homePath ||
-      state.user?.homePath ||
-      getPostLoginDestination(state.user);
+      state.homePath || state.user?.homePath || getPostLoginDestination(state.user);
 
     return {
       ...state,
@@ -132,38 +141,11 @@ export function PermissionProvider({ children }) {
       getModule,
       getVisibleModules,
       refresh: async () => {
-        const response = await api.get("/permissions/me");
-        const nextUser = response.data?.user || getStoredUser();
-
-        if (nextUser) {
-          localStorage.setItem("user", JSON.stringify(nextUser));
-        }
-
-        setState({
-          loading: false,
-          user: nextUser,
-          role: response.data?.role || null,
-          modules: Array.isArray(response.data?.modules) ? response.data.modules : [],
-          permissions: response.data?.permissions || {},
-          scope: response.data?.scope || defaultState.scope,
-          homePath:
-            response.data?.homePath ||
-            nextUser?.homePath ||
-            getPostLoginDestination(nextUser),
-        });
+        const response = await getCurrentPermissionProfile();
+        setState(buildPermissionState(response.data));
       },
     };
   }, [state]);
 
   return <PermissionContext.Provider value={value}>{children}</PermissionContext.Provider>;
 }
-
-export const usePermissions = () => {
-  const context = useContext(PermissionContext);
-
-  if (!context) {
-    throw new Error("usePermissions must be used inside PermissionProvider");
-  }
-
-  return context;
-};

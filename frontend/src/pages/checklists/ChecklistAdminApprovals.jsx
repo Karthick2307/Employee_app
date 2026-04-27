@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+import { usePermissions } from "../../context/usePermissions";
 
 const statusLabels = {
   pending_admin_approval: "Pending Admin Approval",
@@ -548,3 +548,4 @@ export default function ChecklistAdminApprovals() {
     </div>
   );
 }
+

@@ -511,8 +511,16 @@ exports.updateEmployee = async (req, res) => {
 
 exports.deleteEmployee = async (req, res) => {
   try {
-    await Employee.findByIdAndDelete(req.params.id);
-    res.json({ success: true });
+    const employee = await Employee.findById(req.params.id);
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    employee.isActive = false;
+    await employee.save();
+
+    res.json({ success: true, isActive: false });
   } catch (err) {
     res.status(500).json({ message: "Delete failed" });
   }
@@ -544,7 +552,10 @@ exports.bulkDeleteEmployees = async (req, res) => {
 
     const existingEmployeeIds = existingEmployees.map((employee) => employee._id);
 
-    await Employee.deleteMany({ _id: { $in: existingEmployeeIds } });
+    await Employee.updateMany(
+      { _id: { $in: existingEmployeeIds } },
+      { $set: { isActive: false } }
+    );
 
     res.json({
       success: true,

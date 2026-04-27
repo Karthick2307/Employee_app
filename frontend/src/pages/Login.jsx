@@ -1,8 +1,8 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import api from "../api/axios";
+import { login } from "../api/authApi";
 import AnimatedBorderCard from "../components/AnimatedBorderCard";
-import { usePermissions } from "../context/PermissionContext";
+import { usePermissions } from "../context/usePermissions";
 import { startPostLoginWelcomeSession } from "../utils/postLoginWelcome";
 import loginBackground from "../images/login.jpg";
 
@@ -23,7 +23,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await api.post("/auth/login", {
+      const res = await login({
         loginId: loginId.trim(),
         password: password.trim(),
       });
@@ -145,3 +145,4 @@ export default function Login() {
     </div>
   );
 }
+

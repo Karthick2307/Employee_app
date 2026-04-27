@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import {
@@ -11,7 +11,7 @@ import {
   getChatRoutePath,
 } from "../utils/chatDisplay";
 import { clearPostLoginWelcomeSession } from "../utils/postLoginWelcome";
-import { usePermissions } from "../context/PermissionContext";
+import { usePermissions } from "../context/usePermissions";
 
 const emptyReminderState = {
   counts: {
@@ -45,7 +45,23 @@ const emptyRequestNotificationState = {
   rows: [],
 };
 
-const buildNavLinkClass = ({ isActive }) => `nav-link${isActive ? " active" : ""}`;
+const emptyPollNotificationState = {
+  counts: {
+    unread: 0,
+    reminders: 0,
+    total: 0,
+  },
+  unread: [],
+  reminders: [],
+};
+
+const emptyComplaintNotificationState = {
+  counts: {
+    unread: 0,
+  },
+  rows: [],
+};
+
 const buildDropdownItemClass = ({ isActive }) =>
   `dropdown-item${isActive ? " active" : ""}`;
 const truncateNotificationText = (value, maxLength = 140) => {
@@ -87,6 +103,8 @@ export default function Navbar() {
   const role = String(user?.role || "").trim().toLowerCase();
   const isAdmin = role === "admin";
   const isEmployee = role === "employee";
+  const canViewAssignedPollNotifications = can("assigned_polls", "view");
+  const canViewComplaintNotifications = can("complaints", "view");
   const hasRestrictedChecklistAccess =
     !isAdmin &&
     !isEmployee &&
@@ -109,17 +127,28 @@ export default function Navbar() {
   const [requestNotificationData, setRequestNotificationData] = useState(
     emptyRequestNotificationState
   );
+  const [pollNotificationData, setPollNotificationData] = useState(
+    emptyPollNotificationState
+  );
+  const [complaintNotificationData, setComplaintNotificationData] = useState(
+    emptyComplaintNotificationState
+  );
   const [notificationLoading, setNotificationLoading] = useState(false);
 
   const totalNotificationCount =
     isAdmin
       ? Number(feedbackNotificationData.counts.unread || 0) +
-        Number(requestNotificationData.counts.unread || 0)
+        Number(requestNotificationData.counts.unread || 0) +
+        Number(complaintNotificationData.counts.unread || 0)
       : hasRestrictedChecklistAccess
-      ? Number(requestNotificationData.counts.unread || 0)
+      ? Number(requestNotificationData.counts.unread || 0) +
+        Number(complaintNotificationData.counts.unread || 0)
       : Number(reminderNotificationData.counts.total || 0) +
-        Number(chatNotificationData.counts.mentions || 0);
-  const shouldShowNotifications = isEmployee || isAdmin || hasRestrictedChecklistAccess;
+        Number(chatNotificationData.counts.mentions || 0) +
+        Number(pollNotificationData.counts.total || 0) +
+        Number(complaintNotificationData.counts.unread || 0);
+  const shouldShowNotifications =
+    isEmployee || isAdmin || hasRestrictedChecklistAccess || canViewComplaintNotifications;
 
   const workspaceLinks = useMemo(
     () =>
@@ -135,7 +164,13 @@ export default function Navbar() {
           : !can("checklist_master", "view") && can("assigned_checklists", "view")
           ? { to: "/checklists", label: "Assigned Checklist" }
           : null,
+        can("poll_master", "view")
+          ? { to: "/polls", label: "Polling System" }
+          : !can("poll_master", "view") && can("assigned_polls", "view")
+          ? { to: "/polls", label: "Assigned Polls" }
+          : null,
         can("own_task", "view") ? { to: "/own-tasks", label: "Own Task" } : null,
+        can("complaints", "view") ? { to: "/complaints", label: "Complaint Dashboard" } : null,
         can("shared_task", "view") ? { to: "/shared-tasks", label: "Shared Task" } : null,
         can("approval_inbox", "view")
           ? { to: "/checklists/approvals", label: "Approval Inbox" }
@@ -238,6 +273,12 @@ export default function Navbar() {
         can("reports", "report_view")
           ? { to: "/reports/checklists", label: "Checklist Report" }
           : null,
+        can("poll_master", "report_view")
+          ? { to: "/reports/polls", label: "Poll Results" }
+          : null,
+        can("complaints", "view")
+          ? { to: "/complaints/reports", label: "Complaint Report" }
+          : null,
       ].filter(Boolean),
     [can]
   );
@@ -264,11 +305,13 @@ export default function Navbar() {
   }, [location.pathname]);
 
   useEffect(() => {
-    if (!isEmployee && !isAdmin && !hasRestrictedChecklistAccess) {
+    if (!isEmployee && !isAdmin && !hasRestrictedChecklistAccess && !canViewComplaintNotifications) {
       setReminderNotificationData(emptyReminderState);
       setChatNotificationData(emptyChatNotificationState);
       setFeedbackNotificationData(emptyFeedbackNotificationState);
       setRequestNotificationData(emptyRequestNotificationState);
+      setPollNotificationData(emptyPollNotificationState);
+      setComplaintNotificationData(emptyComplaintNotificationState);
       setNotificationLoading(false);
       return undefined;
     }
@@ -282,9 +325,12 @@ export default function Navbar() {
 
       try {
         if (isAdmin) {
-          const [feedbackResponse, requestResponse] = await Promise.all([
+          const [feedbackResponse, requestResponse, complaintResponse] = await Promise.all([
             api.get("/feedback/notifications"),
             api.get("/checklists/admin-requests/notifications"),
+            canViewComplaintNotifications
+              ? api.get("/complaints/notifications")
+              : Promise.resolve({ data: emptyComplaintNotificationState }),
           ]);
 
           if (!active) return;
@@ -303,13 +349,26 @@ export default function Navbar() {
               ? requestResponse.data.rows
               : [],
           });
+          setComplaintNotificationData({
+            counts:
+              complaintResponse.data?.counts || emptyComplaintNotificationState.counts,
+            rows: Array.isArray(complaintResponse.data?.rows)
+              ? complaintResponse.data.rows
+              : [],
+          });
           setReminderNotificationData(emptyReminderState);
           setChatNotificationData(emptyChatNotificationState);
+          setPollNotificationData(emptyPollNotificationState);
           return;
         }
 
         if (hasRestrictedChecklistAccess) {
-          const requestResponse = await api.get("/checklists/admin-requests/notifications");
+          const [requestResponse, complaintResponse] = await Promise.all([
+            api.get("/checklists/admin-requests/notifications"),
+            canViewComplaintNotifications
+              ? api.get("/complaints/notifications")
+              : Promise.resolve({ data: emptyComplaintNotificationState }),
+          ]);
 
           if (!active) return;
 
@@ -320,16 +379,38 @@ export default function Navbar() {
               ? requestResponse.data.rows
               : [],
           });
+          setComplaintNotificationData({
+            counts:
+              complaintResponse.data?.counts || emptyComplaintNotificationState.counts,
+            rows: Array.isArray(complaintResponse.data?.rows)
+              ? complaintResponse.data.rows
+              : [],
+          });
           setReminderNotificationData(emptyReminderState);
           setChatNotificationData(emptyChatNotificationState);
           setFeedbackNotificationData(emptyFeedbackNotificationState);
+          setPollNotificationData(emptyPollNotificationState);
           return;
         }
 
-        const [taskResponse, siteChatResponse, departmentChatResponse] = await Promise.all([
-          api.get("/personal-tasks/notifications"),
-          api.get("/chat/notifications"),
-          api.get("/department-chat/notifications"),
+        const [
+          taskResponse,
+          siteChatResponse,
+          departmentChatResponse,
+          pollResponse,
+          complaintResponse,
+        ] = await Promise.all([
+          isEmployee ? api.get("/personal-tasks/notifications") : Promise.resolve({ data: emptyReminderState }),
+          isEmployee ? api.get("/chat/notifications") : Promise.resolve({ data: emptyChatNotificationState }),
+          isEmployee
+            ? api.get("/department-chat/notifications")
+            : Promise.resolve({ data: emptyChatNotificationState }),
+          isEmployee && canViewAssignedPollNotifications
+            ? api.get("/polls/my/notifications")
+            : Promise.resolve({ data: emptyPollNotificationState }),
+          canViewComplaintNotifications
+            ? api.get("/complaints/notifications")
+            : Promise.resolve({ data: emptyComplaintNotificationState }),
         ]);
 
         if (!active) return;
@@ -368,6 +449,20 @@ export default function Navbar() {
           },
           mentions: combinedMentions,
         });
+        setPollNotificationData({
+          counts: pollResponse.data?.counts || emptyPollNotificationState.counts,
+          unread: Array.isArray(pollResponse.data?.unread) ? pollResponse.data.unread : [],
+          reminders: Array.isArray(pollResponse.data?.reminders)
+            ? pollResponse.data.reminders
+            : [],
+        });
+        setComplaintNotificationData({
+          counts:
+            complaintResponse.data?.counts || emptyComplaintNotificationState.counts,
+          rows: Array.isArray(complaintResponse.data?.rows)
+            ? complaintResponse.data.rows
+            : [],
+        });
         setFeedbackNotificationData(emptyFeedbackNotificationState);
         setRequestNotificationData(emptyRequestNotificationState);
       } catch (err) {
@@ -378,6 +473,8 @@ export default function Navbar() {
           setChatNotificationData(emptyChatNotificationState);
           setFeedbackNotificationData(emptyFeedbackNotificationState);
           setRequestNotificationData(emptyRequestNotificationState);
+          setPollNotificationData(emptyPollNotificationState);
+          setComplaintNotificationData(emptyComplaintNotificationState);
         }
       } finally {
         if (active && showLoader) {
@@ -396,7 +493,13 @@ export default function Navbar() {
       active = false;
       clearInterval(intervalId);
     };
-  }, [hasRestrictedChecklistAccess, isAdmin, isEmployee]);
+  }, [
+    canViewAssignedPollNotifications,
+    canViewComplaintNotifications,
+    hasRestrictedChecklistAccess,
+    isAdmin,
+    isEmployee,
+  ]);
 
   useEffect(() => {
     if (!isEmployee) return;
@@ -508,7 +611,17 @@ export default function Navbar() {
     );
 
   const isWorkspaceMenuActive =
-    (matchesPath(["/employees", "/add", "/edit", "/view", "/me", "/checklists", "/own-tasks", "/shared-tasks"]) &&
+    (matchesPath([
+      "/employees",
+      "/add",
+      "/edit",
+      "/view",
+      "/me",
+      "/checklists",
+      "/own-tasks",
+      "/complaints",
+      "/shared-tasks",
+    ]) &&
       !location.pathname.startsWith("/checklists/admin-approvals")) ||
     location.pathname === "/checklists/approvals";
   const isCommunicationMenuActive = matchesPath([
@@ -582,6 +695,20 @@ export default function Navbar() {
     navigate(`/own-tasks/${task._id}`);
   };
 
+  const openPollNotification = async (item) => {
+    setNotificationsOpen(false);
+
+    try {
+      if (!String(item._id || "").startsWith("reminder-")) {
+        await api.post(`/polls/my/notifications/${item._id}/read`);
+      }
+    } catch (err) {
+      console.error("Poll notification read update failed:", err);
+    }
+
+    navigate(item.routePath || `/polls/my/${item.assignmentId}`);
+  };
+
   const openChatNotification = (item) => {
     setNotificationsOpen(false);
 
@@ -626,6 +753,25 @@ export default function Navbar() {
     navigate(item.routePath || (isAdmin ? "/checklists/admin-approvals" : "/checklists"));
   };
 
+  const openComplaintNotification = async (item) => {
+    setNotificationsOpen(false);
+
+    try {
+      await api.post(`/complaints/notifications/${item._id}/read`);
+
+      setComplaintNotificationData((currentState) => ({
+        counts: {
+          unread: Math.max(0, Number(currentState.counts.unread || 0) - 1),
+        },
+        rows: currentState.rows.filter((row) => row._id !== item._id),
+      }));
+    } catch (err) {
+      console.error("Complaint notification read update failed:", err);
+    }
+
+    navigate(item.routePath || `/complaints/reports?complaintId=${item.complaintId}`);
+  };
+
   const markAllFeedbackNotificationsRead = async () => {
     try {
       await api.post("/feedback/notifications/read-all");
@@ -644,17 +790,37 @@ export default function Navbar() {
     }
   };
 
+  const markAllComplaintNotificationsRead = async () => {
+    try {
+      await api.post("/complaints/notifications/read-all");
+      setComplaintNotificationData(emptyComplaintNotificationState);
+    } catch (err) {
+      console.error("Mark all complaint notifications read failed:", err);
+    }
+  };
+
   const markAllNotificationsRead = async () => {
     if (isAdmin) {
       await Promise.all([
         markAllFeedbackNotificationsRead(),
         markAllChecklistRequestNotificationsRead(),
+        markAllComplaintNotificationsRead(),
       ]);
       return;
     }
 
     if (hasRestrictedChecklistAccess) {
-      await markAllChecklistRequestNotificationsRead();
+      await Promise.all([
+        markAllChecklistRequestNotificationsRead(),
+        canViewComplaintNotifications
+          ? markAllComplaintNotificationsRead()
+          : Promise.resolve(),
+      ]);
+      return;
+    }
+
+    if (canViewComplaintNotifications) {
+      await markAllComplaintNotificationsRead();
     }
   };
 
@@ -821,6 +987,82 @@ export default function Navbar() {
     );
   };
 
+  const renderComplaintNotifications = () => {
+    const complaintRows = Array.isArray(complaintNotificationData.rows)
+      ? complaintNotificationData.rows
+      : [];
+
+    if (!complaintRows.length) return null;
+
+    return (
+      <div className="notification-group">
+        <div className="notification-group__title">Complaints</div>
+        <div className="d-flex flex-column gap-2">
+          {complaintRows.map((item) => (
+            <button
+              type="button"
+              key={item._id}
+              className="notification-item"
+              onClick={() => openComplaintNotification(item)}
+            >
+              <div className="d-flex justify-content-between align-items-start gap-2">
+                <div className="fw-semibold text-dark">
+                  {item.title || "Complaint Notification"}
+                </div>
+                <span className="badge text-bg-light border text-dark">
+                  {item.stageLabel || "Complaint"}
+                </span>
+              </div>
+              <div className="small text-muted text-start">
+                {truncateNotificationText(
+                  item.message || "Open to review the complaint details."
+                )}
+              </div>
+              <div className="small text-primary text-start">
+                {formatPersonalTaskDateTime(item.createdAt)}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPollNotifications = () => {
+    const unreadRows = Array.isArray(pollNotificationData.unread)
+      ? pollNotificationData.unread
+      : [];
+    const reminderRows = Array.isArray(pollNotificationData.reminders)
+      ? pollNotificationData.reminders
+      : [];
+
+    if (!unreadRows.length && !reminderRows.length) return null;
+
+    return (
+      <div className="notification-group">
+        <div className="notification-group__title">Poll Alerts</div>
+        <div className="d-flex flex-column gap-2">
+          {[...unreadRows, ...reminderRows].map((item) => (
+            <button
+              type="button"
+              key={item._id}
+              className="notification-item"
+              onClick={() => openPollNotification(item)}
+            >
+              <div className="fw-semibold text-dark">{item.title || "Polling System"}</div>
+              <div className="small text-muted text-start">
+                {item.message || "Open to review the assigned poll."}
+              </div>
+              <div className="small text-primary text-start">
+                {formatPersonalTaskDateTime(item.createdAt)}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderNotificationMenu = () => (
     <div className="notification-menu">
       <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
@@ -848,9 +1090,16 @@ export default function Navbar() {
             >
               Open Own Tasks
             </button>
+            <button
+              type="button"
+              className="btn btn-link btn-sm text-decoration-none p-0"
+              onClick={() => navigate("/polls")}
+            >
+              Open Polls
+            </button>
           </div>
         ) : null}
-        {isAdmin || hasRestrictedChecklistAccess ? (
+        {isAdmin || hasRestrictedChecklistAccess || canViewComplaintNotifications ? (
           <button
             type="button"
             className="btn btn-link btn-sm text-decoration-none p-0"
@@ -865,29 +1114,37 @@ export default function Navbar() {
       {notificationLoading ? (
         <div className="small text-muted">Loading notifications...</div>
       ) : totalNotificationCount ? (
-        <div className="d-flex flex-column gap-3">
-          {isAdmin ? (
-            <>
-              {renderChecklistRequestNotifications()}
-              {renderFeedbackNotifications()}
-            </>
-          ) : hasRestrictedChecklistAccess ? (
-            renderChecklistRequestNotifications()
-          ) : (
-            <>
-              {renderChatMentions()}
-              {renderReminderGroup("Due Now", reminderNotificationData.due)}
-              {renderReminderGroup("Upcoming", reminderNotificationData.upcoming)}
-            </>
-          )}
-        </div>
+            <div className="d-flex flex-column gap-3">
+              {isAdmin ? (
+                <>
+                  {renderComplaintNotifications()}
+                  {renderChecklistRequestNotifications()}
+                  {renderFeedbackNotifications()}
+                </>
+              ) : hasRestrictedChecklistAccess ? (
+                <>
+                  {renderComplaintNotifications()}
+                  {renderChecklistRequestNotifications()}
+                </>
+              ) : (
+                <>
+                  {renderComplaintNotifications()}
+                  {renderChatMentions()}
+                  {renderPollNotifications()}
+                  {renderReminderGroup("Due Now", reminderNotificationData.due)}
+                  {renderReminderGroup("Upcoming", reminderNotificationData.upcoming)}
+                </>
+              )}
+            </div>
       ) : (
         <div className="small text-muted">
           {isAdmin
-            ? "No new checklist requests or employee feedback notifications right now."
+            ? "No new complaint, checklist, or employee feedback notifications right now."
             : hasRestrictedChecklistAccess
-            ? "No new checklist approval updates right now."
-            : "No chat mentions or reminder alerts right now."}
+            ? "No new complaint or checklist approval updates right now."
+            : canViewComplaintNotifications && !isEmployee
+            ? "No new complaint notifications right now."
+            : "No complaint, chat, poll, or reminder alerts right now."}
         </div>
       )}
     </div>
@@ -986,3 +1243,4 @@ export default function Navbar() {
     </nav>
   );
 }
+

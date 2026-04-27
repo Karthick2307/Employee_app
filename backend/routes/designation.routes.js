@@ -5,7 +5,7 @@ const { requirePermission } = require("../middleware/permissions");
 
 router.get("/", auth, requirePermission("designation_master", "view"), async (req, res) => {
   try {
-    const rows = await Designation.find().sort({ name: 1 });
+    const rows = await Designation.find({ isActive: { $ne: false } }).sort({ name: 1 });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load designations" });
@@ -32,8 +32,8 @@ router.put("/:id", auth, requirePermission("designation_master", "edit"), async 
     const name = String(req.body.name || "").trim();
     if (!name) return res.status(400).json({ message: "Designation name is required" });
 
-    const updated = await Designation.findByIdAndUpdate(
-      req.params.id,
+    const updated = await Designation.findOneAndUpdate(
+      { _id: req.params.id, isActive: { $ne: false } },
       { name },
       { new: true, runValidators: true }
     );
@@ -50,9 +50,15 @@ router.put("/:id", auth, requirePermission("designation_master", "edit"), async 
 
 router.delete("/:id", auth, requirePermission("designation_master", "delete"), async (req, res) => {
   try {
-    const deleted = await Designation.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: "Designation not found" });
-    res.json({ success: true });
+    const designation = await Designation.findOne({
+      _id: req.params.id,
+      isActive: { $ne: false },
+    });
+    if (!designation) return res.status(404).json({ message: "Designation not found" });
+
+    designation.isActive = false;
+    await designation.save();
+    res.json({ success: true, isActive: false });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete designation" });
   }

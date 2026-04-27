@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api/axios";
-import { usePermissions } from "../context/PermissionContext";
+import { usePermissions } from "../context/usePermissions";
 
 const getRoleDashboardCopy = (dashboardType, roleName) => {
   switch (dashboardType) {
@@ -52,6 +52,7 @@ const featuredShortcutOrder = [
   "designation_master",
   "checklist_master",
   "approval_inbox",
+  "complaints",
   "reports",
   "user_management",
   "role_permission_setup",
@@ -119,7 +120,7 @@ export default function RoleDashboard() {
         if (active) {
           setWelcomeSummary(summaryResponse.data || null);
         }
-      } catch (error) {
+      } catch {
         if (active) {
           setWelcomeSummary(null);
         }
@@ -134,7 +135,7 @@ export default function RoleDashboard() {
         if (active) {
           setDashboardStats(statsResponse.data || null);
         }
-      } catch (error) {
+      } catch {
         if (active) {
           setDashboardStats(null);
         }
@@ -226,3 +227,4 @@ export default function RoleDashboard() {
     </div>
   );
 }
+

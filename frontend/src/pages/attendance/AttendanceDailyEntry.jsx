@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+import {
+  createAttendanceRecord,
+  getAttendanceOptions,
+  getAttendanceRecords,
+  updateAttendanceRecord,
+} from "../../api/attendanceApi";
+import { usePermissions } from "../../context/usePermissions";
 import {
   ATTENDANCE_STATUS_OPTIONS,
   buildAttendanceQueryParams,
@@ -37,6 +42,7 @@ const emptyForm = {
 
 export default function AttendanceDailyEntry() {
   const { can, user } = usePermissions();
+  const isEmployeePrincipal = user?.principalType === "employee";
   const canSaveAttendance = can("employee_attendance", "add");
   const canEditAttendance = can("employee_attendance", "edit");
   const [options, setOptions] = useState({
@@ -53,14 +59,14 @@ export default function AttendanceDailyEntry() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
-  if (user?.principalType === "employee") {
-    return <Navigate to="/attendance/self" replace />;
-  }
-
   useEffect(() => {
+    if (isEmployeePrincipal) {
+      return undefined;
+    }
+
     const loadOptions = async () => {
       try {
-        const response = await api.get("/attendance/options");
+        const response = await getAttendanceOptions();
         setOptions({
           companies: Array.isArray(response.data?.companies) ? response.data.companies : [],
           sites: Array.isArray(response.data?.sites) ? response.data.sites : [],
@@ -76,19 +82,23 @@ export default function AttendanceDailyEntry() {
     };
 
     void loadOptions();
-  }, []);
+  }, [isEmployeePrincipal]);
 
   useEffect(() => {
+    if (isEmployeePrincipal) {
+      return undefined;
+    }
+
     const loadRows = async () => {
       setLoading(true);
 
       try {
-        const response = await api.get("/attendance/records", {
-          params: buildAttendanceQueryParams({
+        const response = await getAttendanceRecords(
+          buildAttendanceQueryParams({
             ...appliedFilters,
             includeMissing: true,
-          }),
-        });
+          })
+        );
         setRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
       } catch (error) {
         console.error("Attendance daily entry load failed:", error);
@@ -99,7 +109,7 @@ export default function AttendanceDailyEntry() {
     };
 
     void loadRows();
-  }, [appliedFilters]);
+  }, [appliedFilters, isEmployeePrincipal]);
 
   const filteredSites = useMemo(() => {
     if (!form.companyName) return options.sites;
@@ -128,8 +138,18 @@ export default function AttendanceDailyEntry() {
         }
         return true;
       }),
-    [filters.departmentId, filters.siteId, filters.subDepartmentId, options.employees]
+    [
+      filters.companyName,
+      filters.departmentId,
+      filters.siteId,
+      filters.subDepartmentId,
+      options.employees,
+    ]
   );
+
+  if (isEmployeePrincipal) {
+    return <Navigate to="/attendance/self" replace />;
+  }
 
   const loadRowsAgain = () => {
     setAppliedFilters((current) => ({ ...current }));
@@ -196,9 +216,9 @@ export default function AttendanceDailyEntry() {
       };
 
       if (form.recordId) {
-        await api.put(`/attendance/records/${form.recordId}`, payload);
+        await updateAttendanceRecord(form.recordId, payload);
       } else {
-        await api.post("/attendance/records", payload);
+        await createAttendanceRecord(payload);
       }
 
       alert("Attendance saved successfully");
@@ -576,3 +596,4 @@ export default function AttendanceDailyEntry() {
     </div>
   );
 }
+

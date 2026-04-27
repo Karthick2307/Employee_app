@@ -65,7 +65,7 @@ const resolveHeadNames = async ({
   }
 
   const employees = await Employee.find(
-    { _id: { $in: employeeIds } },
+    { _id: { $in: employeeIds }, isActive: { $ne: false } },
     "employeeCode employeeName"
   );
 
@@ -135,9 +135,10 @@ const canAccessScopedDepartment = async (req, departmentId) => {
 
 router.get("/", auth, requirePermission("department_master", "view"), async (req, res) => {
   try {
-    const rows = await Department.find(await buildDepartmentScopeFilter(req.access || {})).sort({
-      name: 1,
-    });
+    const rows = await Department.find({
+      ...(await buildDepartmentScopeFilter(req.access || {})),
+      isActive: { $ne: false },
+    }).sort({ name: 1 });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load departments" });
@@ -196,8 +197,8 @@ router.put("/:id", auth, requirePermission("department_master", "edit"), async (
       return res.status(400).json({ message: departmentLeadError });
     }
 
-    const updated = await Department.findByIdAndUpdate(
-      req.params.id,
+    const updated = await Department.findOneAndUpdate(
+      { _id: req.params.id, isActive: { $ne: false } },
       { name, headNames, departmentLeadNames },
       { new: true, runValidators: true }
     );
@@ -218,9 +219,15 @@ router.delete("/:id", auth, requirePermission("department_master", "delete"), as
       return res.status(404).json({ message: "Department not found" });
     }
 
-    const deleted = await Department.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: "Department not found" });
-    res.json({ success: true });
+    const department = await Department.findOne({
+      _id: req.params.id,
+      isActive: { $ne: false },
+    });
+    if (!department) return res.status(404).json({ message: "Department not found" });
+
+    department.isActive = false;
+    await department.save();
+    res.json({ success: true, isActive: false });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete department" });
   }

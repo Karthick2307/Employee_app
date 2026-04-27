@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/axios";
-import { usePermissions } from "../../context/PermissionContext";
+import { usePermissions } from "../../context/usePermissions";
 import {
   formatApprovalTypeLabel,
   formatDateTime,
@@ -181,3 +181,4 @@ export default function ChecklistApprovals() {
     </div>
   );
 }
+
