@@ -16,6 +16,7 @@ const siteRoutes = require("./routes/site.routes");
 const companyRoutes = require("./routes/company.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const checklistRoutes = require("./routes/checklist.routes");
+const generatedChecklistTaskRoutes = require("./routes/generatedChecklistTask.routes");
 const personalTaskRoutes = require("./routes/personalTask.routes");
 const chatRoutes = require("./routes/chat.routes");
 const departmentChatRoutes = require("./routes/departmentChat.routes");
@@ -70,6 +71,7 @@ const createApp = () => {
   app.use("/api/companies", companyRoutes);
   app.use("/api/sites", siteRoutes);
   app.use("/api/dashboard", dashboardRoutes);
+  app.use("/api/generated-checklist-tasks", generatedChecklistTaskRoutes);
   app.use("/api/checklists", checklistRoutes);
   app.use("/api/personal-tasks", personalTaskRoutes);
   app.use("/api/chat", chatRoutes);

@@ -2449,6 +2449,39 @@ const loadChecklistTaskReportRows = async (query = {}) => {
   return { tasks };
 };
 
+const buildGeneratedChecklistTaskScopeFilter = async (access = {}, user = {}) => {
+  const restrictedSiteId = getRestrictedChecklistSiteId(user);
+
+  if (isAdminRequester(user) || (isAllScope(access || {}) && !restrictedSiteId)) {
+    return {};
+  }
+
+  const checklistScopeFilter = mergeQueryFilters(
+    await buildChecklistMasterScopeFilter(access || {}),
+    restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+  );
+
+  const [scopedChecklists, accessibleEmployeeIds] = await Promise.all([
+    Checklist.find(checklistScopeFilter, "_id").lean(),
+    resolveAccessibleEmployeeIds(access || {}),
+  ]);
+
+  const checklistFilter = scopedChecklists.length
+    ? { checklist: { $in: scopedChecklists.map((checklist) => checklist._id) } }
+    : null;
+  const employeeFilter = accessibleEmployeeIds.length
+    ? { assignedEmployee: { $in: accessibleEmployeeIds } }
+    : null;
+
+  const activeFilters = [checklistFilter, employeeFilter].filter(Boolean);
+
+  if (!activeFilters.length) {
+    return { _id: null };
+  }
+
+  return activeFilters.length === 1 ? activeFilters[0] : { $or: activeFilters };
+};
+
 const escapePdfText = (value) =>
   String(value === null || value === undefined ? "" : value)
     .replace(/\\/g, "\\\\")
@@ -4026,6 +4059,98 @@ exports.getMyChecklistTasks = async (req, res) => {
   } catch (err) {
     console.error("GET MY CHECKLIST TASKS ERROR:", err);
     return res.status(500).json({ message: "Failed to load assigned checklist tasks" });
+  }
+};
+
+exports.getGeneratedChecklistTasks = async (req, res) => {
+  try {
+    if (!hasChecklistMasterAccess(req.user)) {
+      return res.status(403).json({ message: "Checklist Master access is required" });
+    }
+
+    const filter = mergeQueryFilters(
+      getTaskFilters(req.query),
+      await buildGeneratedChecklistTaskScopeFilter(req.access || {}, req.user)
+    );
+    const tasks = await ChecklistTask.find(filter)
+      .populate(checklistTaskPopulateQuery)
+      .sort({ occurrenceDate: -1, createdAt: -1 });
+
+    return res.json(tasks);
+  } catch (err) {
+    console.error("GET GENERATED CHECKLIST TASKS ERROR:", err);
+    return res.status(500).json({ message: "Failed to load generated checklist tasks" });
+  }
+};
+
+exports.deleteGeneratedChecklistTask = async (req, res) => {
+  try {
+    if (!hasChecklistMasterAccess(req.user)) {
+      return res.status(403).json({ message: "Checklist Master access is required" });
+    }
+
+    const task = await ChecklistTask.findOne(
+      mergeQueryFilters(
+        { _id: req.params.id },
+        await buildGeneratedChecklistTaskScopeFilter(req.access || {}, req.user)
+      ),
+      "_id checklist"
+    ).lean();
+
+    if (!task) {
+      return res.status(404).json({ message: "Generated checklist task not found" });
+    }
+
+    await ChecklistTask.deleteOne({ _id: task._id });
+
+    return res.json({
+      success: true,
+      message: "Generated checklist task deleted permanently",
+    });
+  } catch (err) {
+    console.error("DELETE GENERATED CHECKLIST TASK ERROR:", err);
+    return res.status(500).json({ message: "Failed to delete generated checklist task" });
+  }
+};
+
+exports.bulkDeleteGeneratedChecklistTasks = async (req, res) => {
+  try {
+    if (!hasChecklistMasterAccess(req.user)) {
+      return res.status(403).json({ message: "Checklist Master access is required" });
+    }
+
+    const taskIds = Array.isArray(req.body?.taskIds)
+      ? [...new Set(req.body.taskIds.map((taskId) => normalizeText(taskId)).filter(Boolean))]
+      : [];
+
+    if (!taskIds.length) {
+      return res.status(400).json({ message: "Select at least one generated task to delete" });
+    }
+
+    const scopedTasks = await ChecklistTask.find(
+      mergeQueryFilters(
+        { _id: { $in: taskIds } },
+        await buildGeneratedChecklistTaskScopeFilter(req.access || {}, req.user)
+      ),
+      "_id"
+    ).lean();
+
+    if (!scopedTasks.length) {
+      return res.status(404).json({ message: "Selected generated tasks were not found" });
+    }
+
+    const scopedTaskIds = scopedTasks.map((task) => task._id);
+    const result = await ChecklistTask.deleteMany({ _id: { $in: scopedTaskIds } });
+
+    return res.json({
+      success: true,
+      deletedCount: Number(result.deletedCount || scopedTaskIds.length),
+      skippedCount: taskIds.length - scopedTaskIds.length,
+      message: "Selected generated checklist tasks deleted permanently",
+    });
+  } catch (err) {
+    console.error("BULK DELETE GENERATED CHECKLIST TASKS ERROR:", err);
+    return res.status(500).json({ message: "Failed to delete selected generated checklist tasks" });
   }
 };
 

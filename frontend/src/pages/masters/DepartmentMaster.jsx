@@ -328,10 +328,27 @@ export default function DepartmentMaster() {
   };
 
   return (
-    <div className="container mt-4">
-      <h3>Department Master</h3>
+    <div className="container-fluid mt-4 mb-5">
+      <div className="page-intro-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <div className="page-kicker">Masters</div>
+            <h3 className="mb-1">Department Master</h3>
+            <p className="page-subtitle mb-0">
+              Maintain departments, department heads, leads, and nested sub-department levels.
+            </p>
+          </div>
 
-      <div className="card p-3 mb-3">
+          <div className="list-summary">
+            <span className="summary-chip">{departments.length} departments</span>
+            <span className="summary-chip summary-chip--neutral">
+              {headEmployeeIds.length} heads selected
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="soft-card mb-4">
         <input
           className="form-control mb-2"
           placeholder="Department Name"
@@ -396,55 +413,69 @@ export default function DepartmentMaster() {
         </div>
       </div>
 
-      <table className="table table-bordered mb-4">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Department</th>
-            <th>Department Heads</th>
-            <th>Department Leads</th>
-            <th>Sub Departments</th>
-            <th width="290">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {departments.map((d, i) => (
-            <tr key={d._id}>
-              <td>{i + 1}</td>
-              <td>{d.name}</td>
-              <td>{d.headNames?.length ? d.headNames.join(", ") : "-"}</td>
-              <td>
-                {d.departmentLeadNames?.length ? d.departmentLeadNames.join(", ") : "-"}
-              </td>
-              <td>
-                {d.subDepartments?.length
-                  ? d.subDepartments
-                      .map((sub) =>
-                        sub.headNames?.length
-                          ? `${sub.name} (${sub.headNames.join(", ")})`
-                          : sub.name
-                      )
-                      .join(", ")
-                  : "-"}
-              </td>
-              <td>
-                <button className="btn btn-sm btn-primary me-2" onClick={() => openSubDepartmentManager(d)}>
-                  Manage Sub
-                </button>
-                <button className="btn btn-sm btn-warning me-2" onClick={() => editDepartment(d)}>
-                  Edit
-                </button>
-                <button className="btn btn-sm btn-danger" onClick={() => deleteDepartment(d._id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="table-shell mb-4">
+        <div className="table-responsive">
+          <table className="table table-bordered mb-0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Department</th>
+                <th>Department Heads</th>
+                <th>Department Leads</th>
+                <th>Sub Departments</th>
+                <th width="290">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {departments.map((d, i) => (
+                <tr key={d._id}>
+                  <td>{i + 1}</td>
+                  <td>{d.name}</td>
+                  <td>{d.headNames?.length ? d.headNames.join(", ") : "-"}</td>
+                  <td>
+                    {d.departmentLeadNames?.length
+                      ? d.departmentLeadNames.join(", ")
+                      : "-"}
+                  </td>
+                  <td>
+                    {d.subDepartments?.length
+                      ? d.subDepartments
+                          .map((sub) =>
+                            sub.headNames?.length
+                              ? `${sub.name} (${sub.headNames.join(", ")})`
+                              : sub.name
+                          )
+                          .join(", ")
+                      : "-"}
+                  </td>
+                  <td>
+                    <div className="d-flex flex-wrap gap-2">
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => openSubDepartmentManager(d)}
+                      >
+                        Manage Sub
+                      </button>
+                      <button className="btn btn-sm btn-warning" onClick={() => editDepartment(d)}>
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => deleteDepartment(d._id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {selectedDepartmentId && (
-        <div className="card p-3">
+        <div className="soft-card mb-4">
           <h5 className="mb-3">
             Sub Department Master {currentSubLevel} - {selectedDepartmentName}
           </h5>
@@ -465,7 +496,7 @@ export default function DepartmentMaster() {
             ))}
           </div>
 
-          <div className="d-flex gap-2 mb-3">
+          <div className="d-flex flex-column flex-lg-row align-items-start gap-2 mb-3">
             <div className="flex-grow-1">
               <textarea
                 className="form-control mb-2"
@@ -502,59 +533,65 @@ export default function DepartmentMaster() {
                 </div>
               )}
             </div>
-            <button className="btn btn-success" onClick={saveSubDepartment} disabled={subLoading}>
-              {subLoading ? "Saving..." : subEditingId ? "Update" : "Add"}
-            </button>
-            {subEditingId && (
-              <button className="btn btn-secondary" onClick={resetSubDepartmentForm}>
-                Cancel
+            <div className="d-flex flex-wrap gap-2">
+              <button className="btn btn-success" onClick={saveSubDepartment} disabled={subLoading}>
+                {subLoading ? "Saving..." : subEditingId ? "Update" : "Add"}
               </button>
-            )}
-            <button className="btn btn-outline-secondary" onClick={clearSubDepartmentContext}>
-              Close
-            </button>
+              {subEditingId && (
+                <button className="btn btn-secondary" onClick={resetSubDepartmentForm}>
+                  Cancel
+                </button>
+              )}
+              <button className="btn btn-outline-secondary" onClick={clearSubDepartmentContext}>
+                Close
+              </button>
+            </div>
           </div>
 
-          <table className="table table-bordered">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Sub Department Master {currentSubLevel}</th>
-                <th>Sub Department Heads</th>
-                <th width="250">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subDepartments.length === 0 && (
+          <div className="table-responsive">
+            <table className="table table-bordered mb-0">
+              <thead>
                 <tr>
-                  <td colSpan="4" className="text-center">
-                    No sub departments found
-                  </td>
+                  <th>#</th>
+                  <th>Sub Department Master {currentSubLevel}</th>
+                  <th>Sub Department Heads</th>
+                  <th width="250">Actions</th>
                 </tr>
-              )}
+              </thead>
+              <tbody>
+                {subDepartments.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="text-center">
+                      No sub departments found
+                    </td>
+                  </tr>
+                )}
 
-              {subDepartments.map((sub, index) => (
-                <tr key={sub._id}>
-                  <td>{index + 1}</td>
-                  <td>{sub.name}</td>
-                  <td>{sub.headNames?.length ? sub.headNames.join(", ") : "-"}</td>
-                  <td>
-                    {currentSubLevel < 4 && (
-                      <button className="btn btn-sm btn-primary me-2" onClick={() => openNextSubLevel(sub)}>
-                        Next Level
-                      </button>
-                    )}
-                    <button className="btn btn-sm btn-warning me-2" onClick={() => editSubDepartment(sub)}>
-                      Edit
-                    </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteSubDepartment(sub._id)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                {subDepartments.map((sub, index) => (
+                  <tr key={sub._id}>
+                    <td>{index + 1}</td>
+                    <td>{sub.name}</td>
+                    <td>{sub.headNames?.length ? sub.headNames.join(", ") : "-"}</td>
+                    <td>
+                      <div className="d-flex flex-wrap gap-2">
+                        {currentSubLevel < 4 && (
+                          <button className="btn btn-sm btn-primary" onClick={() => openNextSubLevel(sub)}>
+                            Next Level
+                          </button>
+                        )}
+                        <button className="btn btn-sm btn-warning" onClick={() => editSubDepartment(sub)}>
+                          Edit
+                        </button>
+                        <button className="btn btn-sm btn-danger" onClick={() => deleteSubDepartment(sub._id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

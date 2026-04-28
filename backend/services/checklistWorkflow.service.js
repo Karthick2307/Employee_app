@@ -94,7 +94,13 @@ const checklistTaskPopulateQuery = [
   {
     path: "checklist",
     select:
-      "checklistNumber checklistName scheduleType scheduleTime startDate endDate endTime status approvalHierarchy priority",
+      "checklistNumber checklistName scheduleType scheduleTime startDate endDate endTime status approvalHierarchy priority employeeAssignedSite",
+    populate: [
+      {
+        path: "employeeAssignedSite",
+        select: "name companyName",
+      },
+    ],
   },
   {
     path: "assignedEmployee",

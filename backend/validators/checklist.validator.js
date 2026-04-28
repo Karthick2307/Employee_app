@@ -7,12 +7,25 @@ const {
   z,
 } = require("./common");
 
+const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+
+const optionalObjectIdField = (label) =>
+  z.preprocess(
+    (value) => {
+      if (value === undefined || value === null) return undefined;
+
+      const trimmedValue = String(value).trim();
+      return trimmedValue ? trimmedValue : undefined;
+    },
+    z.string().regex(objectIdPattern, `${label} must be a valid id`).optional()
+  );
+
 const checklistCreateSchema = z
   .object({
     checklistName: requiredTrimmedString("Checklist name"),
     assignedToEmployee: objectIdField("Assigned employee"),
     employeeAssignedSite: objectIdField("Assigned site"),
-    checklistSourceSite: objectIdField("Checklist source site").optional(),
+    checklistSourceSite: optionalObjectIdField("Checklist source site"),
     scheduleType: z
       .preprocess((value) => String(value || "").trim().toLowerCase(), z.enum([
         "daily",
@@ -40,6 +53,10 @@ const checklistBulkDeleteSchema = z.object({
   checklistIds: z.array(objectIdField("Checklist id")).min(1, "Select at least one checklist"),
 });
 
+const generatedChecklistTaskBulkDeleteSchema = z.object({
+  taskIds: z.array(objectIdField("Task id")).min(1, "Select at least one generated task"),
+});
+
 const checklistDecisionSchema = z
   .object({
     action: optionalTrimmedString,
@@ -53,6 +70,7 @@ module.exports = {
   checklistBulkDeleteSchema,
   checklistCreateSchema,
   checklistDecisionSchema,
+  generatedChecklistTaskBulkDeleteSchema,
   checklistUpdateSchema,
   idParamSchema,
 };

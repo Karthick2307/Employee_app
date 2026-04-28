@@ -19,6 +19,7 @@ const {
   createTemporaryChecklistTransfer,
   decideChecklistTask,
   deleteChecklist,
+  deleteGeneratedChecklistTask,
   exportChecklistTaskReportExcel,
   exportChecklistTaskReportPdf,
   exportChecklistsExcel,
@@ -32,6 +33,7 @@ const {
   getChecklistTaskById,
   getChecklistTaskReport,
   getChecklists,
+  getGeneratedChecklistTasks,
   getMyChecklistTasks,
   getNextChecklistNumber,
   importChecklistsExcel,
@@ -140,6 +142,12 @@ router.get(
   getChecklistTaskReport
 );
 router.get(
+  "/tasks",
+  auth,
+  requirePermission("checklist_master", "view"),
+  getGeneratedChecklistTasks
+);
+router.get(
   "/tasks/my",
   auth,
   requirePermission("assigned_checklists", "view"),
@@ -237,6 +245,13 @@ router.patch(
   requirePermission("checklist_master", "status_update"),
   validateRequest({ params: idParamSchema }),
   toggleChecklistStatus
+);
+router.delete(
+  "/tasks/:id",
+  auth,
+  requirePermission("checklist_master", "delete"),
+  validateRequest({ params: idParamSchema }),
+  deleteGeneratedChecklistTask
 );
 router.delete(
   "/:id",

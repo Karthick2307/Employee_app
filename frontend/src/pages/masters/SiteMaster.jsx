@@ -370,10 +370,27 @@ export default function SiteMaster() {
   };
 
   return (
-    <div className="container-fluid px-3 px-lg-4 mt-4 mb-5">
-      <h3>Site Master</h3>
+    <div className="container-fluid mt-4 mb-5">
+      <div className="page-intro-card mb-4">
+        <div className="list-toolbar">
+          <div>
+            <div className="page-kicker">Masters</div>
+            <h3 className="mb-1">Site Master</h3>
+            <p className="page-subtitle mb-0">
+              Maintain site mappings, site heads, leads, and nested sub-site levels.
+            </p>
+          </div>
 
-      <div className="card p-3 mb-3">
+          <div className="list-summary">
+            <span className="summary-chip">{sites.length} sites</span>
+            <span className="summary-chip summary-chip--neutral">
+              {headEmployeeIds.length} heads selected
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="soft-card mb-4">
         <select
           className="form-select mb-2"
           value={companyName}
@@ -459,59 +476,61 @@ export default function SiteMaster() {
         </div>
       </div>
 
-      <div className="table-responsive">
-        <table className="table table-bordered">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Company</th>
-              <th>Site</th>
-              <th>Site Heads</th>
-              <th>Site Leads</th>
-              <th>Sub Sites</th>
-              <th width="290">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sites.map((s, i) => (
-              <tr key={s._id}>
-                <td>{i + 1}</td>
-                <td>{s.companyName || "-"}</td>
-                <td>{s.name}</td>
-                <td>{s.headNames?.length ? s.headNames.join(", ") : "-"}</td>
-                <td>{s.siteLeadNames?.length ? s.siteLeadNames.join(", ") : "-"}</td>
-                <td>
-                  {s.subSites?.length
-                    ? s.subSites
-                        .map((sub) =>
-                          sub.headNames?.length
-                            ? `${sub.name} (${sub.headNames.join(", ")})`
-                            : sub.name
-                        )
-                        .join(", ")
-                    : "-"}
-                </td>
-                <td>
-                  <div className="d-flex flex-wrap gap-2">
-                    <button className="btn btn-sm btn-primary" onClick={() => openSubSiteManager(s)}>
-                      Manage Sub
-                    </button>
-                    <button className="btn btn-sm btn-warning" onClick={() => editRow(s)}>
-                      Edit
-                    </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteRow(s._id)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
+      <div className="table-shell mb-4">
+        <div className="table-responsive">
+          <table className="table table-bordered mb-0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Company</th>
+                <th>Site</th>
+                <th>Site Heads</th>
+                <th>Site Leads</th>
+                <th>Sub Sites</th>
+                <th width="290">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sites.map((s, i) => (
+                <tr key={s._id}>
+                  <td>{i + 1}</td>
+                  <td>{s.companyName || "-"}</td>
+                  <td>{s.name}</td>
+                  <td>{s.headNames?.length ? s.headNames.join(", ") : "-"}</td>
+                  <td>{s.siteLeadNames?.length ? s.siteLeadNames.join(", ") : "-"}</td>
+                  <td>
+                    {s.subSites?.length
+                      ? s.subSites
+                          .map((sub) =>
+                            sub.headNames?.length
+                              ? `${sub.name} (${sub.headNames.join(", ")})`
+                              : sub.name
+                          )
+                          .join(", ")
+                      : "-"}
+                  </td>
+                  <td>
+                    <div className="d-flex flex-wrap gap-2">
+                      <button className="btn btn-sm btn-primary" onClick={() => openSubSiteManager(s)}>
+                        Manage Sub
+                      </button>
+                      <button className="btn btn-sm btn-warning" onClick={() => editRow(s)}>
+                        Edit
+                      </button>
+                      <button className="btn btn-sm btn-danger" onClick={() => deleteRow(s._id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {selectedSiteId && (
-        <div className="card p-3">
+        <div className="soft-card mb-4">
           <h5 className="mb-3">
             Sub Site Master {currentSubLevel} - {selectedSiteName}
           </h5>
@@ -583,7 +602,7 @@ export default function SiteMaster() {
           </div>
 
           <div className="table-responsive">
-            <table className="table table-bordered">
+            <table className="table table-bordered mb-0">
               <thead>
                 <tr>
                   <th>#</th>

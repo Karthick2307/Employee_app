@@ -31,6 +31,18 @@ const env = {
   jwtSecret: normalizeText(process.env.JWT_SECRET),
   jwtExpiresIn: normalizeText(process.env.JWT_EXPIRES_IN) || "30d",
   corsOrigins: parseCsv(process.env.CORS_ORIGIN),
+  loginRateLimitWindowMinutes: parsePositiveInt(
+    process.env.LOGIN_RATE_LIMIT_WINDOW_MINUTES,
+    15
+  ),
+  loginRateLimitMaxAttemptsDev: parsePositiveInt(
+    process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS_DEV,
+    100
+  ),
+  loginRateLimitMaxAttemptsProd: parsePositiveInt(
+    process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PROD,
+    5
+  ),
   requestLogEnabled:
     normalizeText(process.env.REQUEST_LOG_ENABLED || "true").toLowerCase() !== "false",
   uploadDir: path.resolve(__dirname, "..", "uploads"),

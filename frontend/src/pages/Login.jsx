@@ -19,6 +19,8 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
+
     setError("");
     setLoading(true);
 
@@ -35,7 +37,19 @@ export default function Login() {
 
       navigate("/welcome", { replace: true });
     } catch (err) {
-      setError(err.response?.data?.message || "Invalid login ID or password");
+      const responseData = err.response?.data || {};
+      const retryAfterMinutes = Number(responseData.retryAfterMinutes || 0);
+
+      if (err.response?.status === 429) {
+        setError(
+          responseData.message ||
+            `Too many login attempts. Please try again${
+              retryAfterMinutes ? ` after ${retryAfterMinutes} minutes` : " later"
+            }.`
+        );
+      } else {
+        setError(responseData.message || "Invalid login ID or password");
+      }
     } finally {
       setLoading(false);
     }

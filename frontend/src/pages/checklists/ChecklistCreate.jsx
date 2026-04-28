@@ -894,6 +894,7 @@ export default function ChecklistCreate({ mode = "create" }) {
     try {
       const payload = {
         ...form,
+        checklistSourceSite: form.checklistSourceSite || undefined,
         isDependentTask: form.isDependentTask,
         checklistItems: normalizedItems,
         approvals: normalizedApprovals,

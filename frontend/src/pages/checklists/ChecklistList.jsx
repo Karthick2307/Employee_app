@@ -223,7 +223,11 @@ export default function ChecklistList() {
   };
 
   const deleteChecklist = async (id) => {
-    if (!window.confirm("Delete this checklist master and its generated tasks?")) {
+    if (
+      !window.confirm(
+        "Delete this checklist master? If generated employee tasks already exist, deletion will be blocked and you should disable it instead."
+      )
+    ) {
       return;
     }
 
@@ -247,7 +251,7 @@ export default function ChecklistList() {
       !window.confirm(
         `Delete ${checklistIdsToDelete.length} selected checklist master${
           checklistIdsToDelete.length === 1 ? "" : "s"
-        } and their generated tasks?`
+        }? Masters with generated employee tasks will be skipped and should be disabled instead.`
       )
     ) {
       return;
@@ -486,6 +490,9 @@ function AdminChecklistMasterList({
           </div>
 
           <div className="d-flex flex-wrap gap-2">
+            <Link to="/checklists/tasks" className="btn btn-outline-dark">
+              Tasks
+            </Link>
             {canDelete ? (
               <button
                 type="button"
