@@ -5773,6 +5773,10 @@ a:hover {
   align-items: flex-start;
 }
 
+.chat-message__attachment--audio {
+  align-items: flex-start;
+}
+
 .chat-message__image {
   display: block;
   width: min(100%, 360px);
@@ -5788,6 +5792,13 @@ a:hover {
   flex-direction: column;
   gap: 0.2rem;
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-message__audio {
+  width: min(100%, 420px);
+  min-width: min(280px, 100%);
+  margin: 0.35rem 0;
 }
 
 .chat-message__file-icon {
@@ -5922,6 +5933,21 @@ a:hover {
   border-radius: 14px;
   border: 1px solid var(--app-border);
   background: var(--app-surface-soft);
+}
+
+.chat-image-preview-card__file--audio {
+  align-items: flex-start;
+}
+
+.chat-voice-recorder__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.375rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(220, 53, 69, 0.1);
+  color: #b42318;
+  font-weight: 800;
 }
 
 .chat-mention-layout {

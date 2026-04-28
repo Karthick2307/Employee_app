@@ -7,6 +7,11 @@ import {
   formatComplaintDuration,
   getComplaintTimeState,
 } from "../utils/complaintLifecycle";
+import {
+  GENERAL_ATTACHMENT_ACCEPT,
+  GENERAL_ATTACHMENT_OPTIONS,
+  validateFile,
+} from "../utils/fileValidation";
 
 const defaultForm = {
   departmentId: "",
@@ -259,6 +264,23 @@ export default function ComplaintsModule() {
     }
   };
 
+  const handleAttachmentChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    const validationMessage = validateFile(file, GENERAL_ATTACHMENT_OPTIONS);
+
+    if (validationMessage) {
+      alert(validationMessage);
+      event.target.value = "";
+      setForm((current) => ({ ...current, attachment: null }));
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      attachment: file,
+    }));
+  };
+
   const handleAction = async (action) => {
     if (!selectedComplaintId) return;
 
@@ -372,12 +394,8 @@ export default function ComplaintsModule() {
                 ref={fileInputRef}
                 type="file"
                 className="form-control"
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    attachment: event.target.files?.[0] || null,
-                  }))
-                }
+                accept={GENERAL_ATTACHMENT_ACCEPT}
+                onChange={handleAttachmentChange}
               />
             </div>
             <div className="col-12">

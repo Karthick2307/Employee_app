@@ -531,7 +531,7 @@ function ChecklistSlide({
 
 export default function IntroWelcomeScreen() {
   const navigate = useNavigate();
-  const { user, can, canAny } = usePermissions();
+  const { user, can, canAny, getHomePath } = usePermissions();
   const storedUser = useMemo(() => getStoredUser() || {}, []);
   const currentUser = user || storedUser;
   const displayName =
@@ -791,6 +791,11 @@ export default function IntroWelcomeScreen() {
     navigate(path, { replace: true });
   };
 
+  const handleSkipWelcome = () => {
+    dismissPostLoginWelcome();
+    navigate(getHomePath() || "/dashboard", { replace: true });
+  };
+
   const handlePointerDown = (event) => {
     pointerStartXRef.current = event.clientX;
     setIsAutoPaused(true);
@@ -860,6 +865,13 @@ export default function IntroWelcomeScreen() {
           <div>
             <h1 className="intro-slider__title">Hi, {checklistSummary.userName || displayName}</h1>
           </div>
+          <button
+            type="button"
+            className="btn intro-slider__skip-btn"
+            onClick={handleSkipWelcome}
+          >
+            Skip
+          </button>
         </div>
 
         <div className="intro-slider__slider-panel">

@@ -83,6 +83,7 @@ const buildSearchText = ({ message, senderName, mentionNames, attachmentOriginal
     .toLowerCase();
 
 const isImageMimeType = (mimeType) => normalizeLower(mimeType).startsWith("image/");
+const isAudioMimeType = (mimeType) => normalizeLower(mimeType).startsWith("audio/");
 
 const getMessageAttachmentDetails = (messageRow) => {
   const attachmentFileName = normalizeString(
@@ -106,12 +107,17 @@ const getMessageAttachmentDetails = (messageRow) => {
     mimeType: attachmentMimeType,
     size: attachmentSize,
     isImage: isImageMimeType(attachmentMimeType),
+    isAudio: isAudioMimeType(attachmentMimeType),
     url: `/uploads/${attachmentFileName}`,
   };
 };
 
 const buildAttachmentSummaryText = (attachment) => {
-  const attachmentLabel = attachment?.isImage ? "Image shared" : "File shared";
+  const attachmentLabel = attachment?.isImage
+    ? "Image shared"
+    : attachment?.isAudio
+    ? "Voice message"
+    : "File shared";
   const attachmentName = normalizeString(attachment?.originalName);
 
   return attachmentName ? `${attachmentLabel}: ${attachmentName}` : attachmentLabel;

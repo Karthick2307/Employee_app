@@ -107,6 +107,32 @@
   line-height: 1.02;
 }
 
+.intro-slider__skip-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.58rem 1.05rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4f1ff;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.intro-slider__skip-btn:hover,
+.intro-slider__skip-btn:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 24px rgba(7, 12, 26, 0.18);
+}
+
 .intro-slider__lead {
   max-width: 40rem;
   margin: 0.8rem 0 0;
@@ -671,6 +697,10 @@
     display: grid;
   }
 
+  .intro-slider__skip-btn {
+    width: max-content;
+  }
+
   .intro-slider__module-hero,
   .intro-slider__spotlight-hero--checklist {
     grid-template-columns: 1fr;
@@ -726,7 +756,8 @@
   }
 
   .intro-slider__quick-btn,
-  .intro-slider__continue-btn {
+  .intro-slider__continue-btn,
+  .intro-slider__skip-btn {
     width: 100%;
     justify-content: center;
   }
@@ -754,7 +785,8 @@
   .intro-slider__display-card,
   .intro-slider__dot,
   .intro-slider__quick-btn,
-  .intro-slider__continue-btn {
+  .intro-slider__continue-btn,
+  .intro-slider__skip-btn {
     animation: none !important;
     transition: none !important;
   }

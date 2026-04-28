@@ -328,7 +328,7 @@ export default function DepartmentMaster() {
   };
 
   return (
-    <div className="container-fluid mt-4 mb-5">
+    <div className="container mt-4 mb-5">
       <div className="page-intro-card mb-4">
         <div className="list-toolbar">
           <div>

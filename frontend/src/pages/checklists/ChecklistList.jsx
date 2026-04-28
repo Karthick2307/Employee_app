@@ -23,6 +23,11 @@ import {
   getPriorityRowClass,
   getChecklistTaskStatusBadgeClass,
 } from "../../utils/checklistDisplay";
+import {
+  EXCEL_IMPORT_ACCEPT,
+  EXCEL_IMPORT_OPTIONS,
+  validateFile,
+} from "../../utils/fileValidation";
 
 const getChecklistSiteName = (site) => String(site?.name || "").trim();
 
@@ -338,6 +343,12 @@ export default function ChecklistList() {
       return;
     }
 
+    const validationMessage = validateFile(file, EXCEL_IMPORT_OPTIONS);
+    if (validationMessage) {
+      alert(validationMessage);
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
     setImportLoading(true);
@@ -386,7 +397,7 @@ export default function ChecklistList() {
       <input
         ref={importInputRef}
         type="file"
-        accept=".xlsx"
+        accept={EXCEL_IMPORT_ACCEPT}
         className="d-none"
         onChange={importChecklistExcel}
       />

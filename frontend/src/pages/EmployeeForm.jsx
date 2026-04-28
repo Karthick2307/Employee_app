@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import SearchableCheckboxSelector from "../components/SearchableCheckboxSelector";
+import {
+  IMAGE_FILE_ACCEPT,
+  IMAGE_FILE_OPTIONS,
+  validateFile,
+} from "../utils/fileValidation";
 import { formatSiteLabel } from "../utils/siteDisplay";
 
 const flattenSubDepartments = (rows = [], trail = [], department = null) =>
@@ -211,6 +216,16 @@ export default function EmployeeForm() {
 
   const handlePhotoChange = (event) => {
     const file = event.target.files?.[0] || null;
+    const validationMessage = validateFile(file, IMAGE_FILE_OPTIONS);
+
+    if (validationMessage) {
+      alert(validationMessage);
+      event.target.value = "";
+      setPhoto(null);
+      setPhotoPreview("");
+      return;
+    }
+
     setPhoto(file);
     setPhotoPreview(file ? URL.createObjectURL(file) : "");
   };
@@ -369,7 +384,7 @@ export default function EmployeeForm() {
               <input
                 className="form-control mb-2"
                 type="file"
-                accept="image/png,image/jpeg,image/jpg"
+                accept={IMAGE_FILE_ACCEPT}
                 onChange={handlePhotoChange}
               />
               {photoPreview ? (

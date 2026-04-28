@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import api from "../api/axios";
 import {
+  IMAGE_FILE_ACCEPT,
+  IMAGE_FILE_OPTIONS,
+  validateFile,
+} from "../utils/fileValidation";
+import {
   buildBrowserNotificationBody,
   formatEmployeeLabel,
   formatMonthlyDayLabel,
@@ -410,6 +415,14 @@ export default function OwnTasks() {
 
   const handleAttachmentChange = (event) => {
     const file = event.target.files?.[0] || null;
+    const validationMessage = validateFile(file, IMAGE_FILE_OPTIONS);
+
+    if (validationMessage) {
+      alert(validationMessage);
+      event.target.value = "";
+      clearAttachmentSelection();
+      return;
+    }
 
     setAttachmentFile(file);
     setAttachmentPreview((currentValue) => {
@@ -651,7 +664,7 @@ export default function OwnTasks() {
                   className="form-control"
                   type="file"
                   name="attachment"
-                  accept="image/png,image/jpeg,image/jpg"
+                  accept={IMAGE_FILE_ACCEPT}
                   onChange={handleAttachmentChange}
                 />
                 <div className="form-help mt-1">

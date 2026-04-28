@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
+  GENERAL_ATTACHMENT_ACCEPT,
+  GENERAL_ATTACHMENT_OPTIONS,
+  validateFiles,
+} from "../../utils/fileValidation";
+import {
   formatApprovalTypeLabel,
   formatChecklistDependencyLabel,
   formatChecklistDependencyStatus,
@@ -317,6 +322,20 @@ export default function ChecklistTaskView() {
           : item
       )
     );
+  };
+
+  const handleAttachmentChange = (event) => {
+    const files = event.target.files || [];
+    const validationMessage = validateFiles(files, GENERAL_ATTACHMENT_OPTIONS);
+
+    if (validationMessage) {
+      alert(validationMessage);
+      event.target.value = "";
+      setAttachments([]);
+      return;
+    }
+
+    setAttachments(files);
   };
 
   const handleSubmitTask = async (submissionType = "normal") => {
@@ -732,7 +751,8 @@ export default function ChecklistTaskView() {
                   type="file"
                   multiple
                   className="form-control"
-                  onChange={(event) => setAttachments(event.target.files || [])}
+                  accept={GENERAL_ATTACHMENT_ACCEPT}
+                  onChange={handleAttachmentChange}
                 />
 
                 <div className="small text-muted mt-2">

@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
+  GENERAL_ATTACHMENT_ACCEPT,
+  GENERAL_ATTACHMENT_OPTIONS,
+  validateFiles,
+} from "../../utils/fileValidation";
+import {
   formatPollAssignmentStatusLabel,
   formatPollDate,
   formatPollDateTime,
@@ -76,6 +81,20 @@ export default function PollResponse() {
           : [...currentValues, optionId],
       };
     });
+  };
+
+  const handleAttachmentChange = (event) => {
+    const files = event.target.files || [];
+    const validationMessage = validateFiles(files, GENERAL_ATTACHMENT_OPTIONS);
+
+    if (validationMessage) {
+      alert(validationMessage);
+      event.target.value = "";
+      setAttachments([]);
+      return;
+    }
+
+    setAttachments(files);
   };
 
   const submitResponse = async () => {
@@ -253,7 +272,8 @@ export default function PollResponse() {
               multiple
               className="form-control"
               disabled={!canSubmit}
-              onChange={(event) => setAttachments(event.target.files || [])}
+              accept={GENERAL_ATTACHMENT_ACCEPT}
+              onChange={handleAttachmentChange}
             />
             <div className="small text-muted mt-2">
               Upload supporting files together with your response if required.

@@ -1,3 +1,9 @@
+import {
+  GENERAL_ATTACHMENT_ACCEPT,
+  GENERAL_ATTACHMENT_OPTIONS,
+  validateFile,
+} from "../../utils/fileValidation";
+
 export default function ComplaintQuickSubmitCard({
   currentEmployee,
   user,
@@ -8,6 +14,23 @@ export default function ComplaintQuickSubmitCard({
   onSubmit,
   saving,
 }) {
+  const handleAttachmentChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    const validationMessage = validateFile(file, GENERAL_ATTACHMENT_OPTIONS);
+
+    if (validationMessage) {
+      alert(validationMessage);
+      event.target.value = "";
+      setForm((current) => ({ ...current, attachment: null }));
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      attachment: file,
+    }));
+  };
+
   return (
     <div className="soft-card complaint-submit-card">
       <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
@@ -60,12 +83,8 @@ export default function ComplaintQuickSubmitCard({
             ref={fileInputRef}
             type="file"
             className="form-control"
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                attachment: event.target.files?.[0] || null,
-              }))
-            }
+            accept={GENERAL_ATTACHMENT_ACCEPT}
+            onChange={handleAttachmentChange}
           />
         </div>
         <div className="col-12">

@@ -27,6 +27,13 @@ const extensionMap = {
   "application/vnd.ms-excel": ".xls",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
   "text/plain": ".txt",
+  "audio/aac": ".aac",
+  "audio/mp4": ".m4a",
+  "audio/mpeg": ".mp3",
+  "audio/ogg": ".ogg",
+  "audio/wav": ".wav",
+  "audio/webm": ".webm",
+  "audio/x-m4a": ".m4a",
 };
 
 const createDiskUpload = ({ allowedMimeTypes = [], maxFileSize = 10 * 1024 * 1024 } = {}) => {

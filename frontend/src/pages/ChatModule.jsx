@@ -12,6 +12,11 @@ import {
   buildChatMentionNotificationBody,
   formatChatDateTime,
 } from "../utils/chatDisplay";
+import {
+  GENERAL_ATTACHMENT_ACCEPT,
+  GENERAL_ATTACHMENT_OPTIONS,
+  validateFile,
+} from "../utils/fileValidation";
 
 const getUser = () => JSON.parse(localStorage.getItem("user") || "{}");
 
@@ -101,6 +106,45 @@ const formatAttachmentSize = (value) => {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const AUDIO_MIME_TYPE_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/aac",
+];
+
+const getSupportedAudioMimeType = () => {
+  if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+    return "";
+  }
+
+  return (
+    AUDIO_MIME_TYPE_CANDIDATES.find((mimeType) =>
+      window.MediaRecorder.isTypeSupported(mimeType)
+    ) || ""
+  );
+};
+
+const isAudioMimeType = (value) => String(value || "").trim().toLowerCase().startsWith("audio/");
+
+const getAudioFileExtension = (mimeType) => {
+  const normalizedType = String(mimeType || "").toLowerCase();
+  if (normalizedType.includes("mp4") || normalizedType.includes("aac")) return "m4a";
+  if (normalizedType.includes("mpeg")) return "mp3";
+  if (normalizedType.includes("ogg")) return "ogg";
+  if (normalizedType.includes("wav")) return "wav";
+  return "webm";
+};
+
+const formatRecordingDuration = (value) => {
+  const totalSeconds = Math.max(0, Number(value || 0));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
 };
 
 const getInitials = (value, fallback = "CH") =>
@@ -193,6 +237,11 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   const textareaRef = useRef(null);
   const editTextareaRef = useRef(null);
   const attachmentInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingStreamRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const recordingCancelRef = useRef(false);
+  const recordingTimerRef = useRef(null);
   const selectedGroupIdRef = useRef("");
   const loadGroupsRef = useRef(async () => {});
   const loadMessagesRef = useRef(async () => {});
@@ -208,6 +257,8 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   const [composerMessage, setComposerMessage] = useState("");
   const [composerAttachmentFile, setComposerAttachmentFile] = useState(null);
   const [composerAttachmentPreviewUrl, setComposerAttachmentPreviewUrl] = useState("");
+  const [recordingState, setRecordingState] = useState("idle");
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [selectedMentions, setSelectedMentions] = useState([]);
   const [mentionContext, setMentionContext] = useState(null);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
@@ -229,12 +280,24 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   const highlightedMessageId = searchParams.get("message") || "";
   const queryGroupId = searchParams.get("group") || "";
   const canSendComposerMessage = Boolean(
-    String(composerMessage || "").trim() || composerAttachmentFile
+    (String(composerMessage || "").trim() || composerAttachmentFile) &&
+      recordingState === "idle"
   );
   const isComposerAttachmentImage = String(composerAttachmentFile?.type || "")
     .trim()
     .toLowerCase()
     .startsWith("image/");
+  const isComposerAttachmentAudio = isAudioMimeType(composerAttachmentFile?.type);
+  const composerAttachmentStatus = isComposerAttachmentAudio
+    ? "Voice ready"
+    : composerAttachmentFile
+    ? "1 file attached"
+    : "No file";
+  const supportsVoiceRecording =
+    typeof window !== "undefined" &&
+    typeof window.MediaRecorder !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia);
 
   selectedGroupIdRef.current = selectedGroupId;
 
@@ -436,6 +499,21 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   }, [composerAttachmentPreviewUrl]);
 
   useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        window.clearInterval(recordingTimerRef.current);
+      }
+
+      if (mediaRecorderRef.current?.state === "recording") {
+        recordingCancelRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
+
+      recordingStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
     const nextIds = new Set(groups.map((group) => String(group._id)));
 
     if (selectedGroupId && nextIds.has(String(selectedGroupId))) {
@@ -612,11 +690,158 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
     attachmentInputRef.current?.click();
   };
 
+  const clearVoiceRecordingResources = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    recordingStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+    mediaRecorderRef.current = null;
+  };
+
+  const buildVoiceFileFromChunks = (chunks, mimeType) => {
+    const resolvedMimeType =
+      String(mimeType || chunks[0]?.type || "").split(";")[0] || "audio/webm";
+    const audioBlob = new Blob(chunks, { type: resolvedMimeType });
+    const extension = getAudioFileExtension(resolvedMimeType);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    return new File([audioBlob], `voice-message-${timestamp}.${extension}`, {
+      type: resolvedMimeType,
+    });
+  };
+
+  const attachRecordedVoice = (voiceFile) => {
+    const validationMessage = validateFile(voiceFile, GENERAL_ATTACHMENT_OPTIONS);
+    if (validationMessage) {
+      setErrorMessage(validationMessage);
+      return;
+    }
+
+    setComposerAttachmentFile(voiceFile);
+    setComposerAttachmentPreviewUrl((currentValue) => {
+      if (currentValue) {
+        window.URL.revokeObjectURL(currentValue);
+      }
+
+      return window.URL.createObjectURL(voiceFile);
+    });
+    setErrorMessage("");
+  };
+
+  const startVoiceRecording = async () => {
+    if (!supportsVoiceRecording || recordingState !== "idle" || sending) {
+      if (!supportsVoiceRecording) {
+        setErrorMessage("Voice recording is not supported in this browser.");
+      }
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      clearComposerAttachment();
+      const mimeType = getSupportedAudioMimeType();
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recordingChunksRef.current = [];
+      recordingCancelRef.current = false;
+      recordingStreamRef.current = stream;
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onerror = () => {
+        recordingCancelRef.current = true;
+        setRecordingState("idle");
+        setRecordingSeconds(0);
+        clearVoiceRecordingResources();
+        setErrorMessage("Voice recording failed. Please try again.");
+      };
+
+      mediaRecorder.onstop = () => {
+        const chunks = recordingChunksRef.current;
+        const wasCancelled = recordingCancelRef.current;
+        const recordedMimeType = mediaRecorder.mimeType || mimeType;
+
+        recordingChunksRef.current = [];
+        recordingCancelRef.current = false;
+        clearVoiceRecordingResources();
+        setRecordingState("idle");
+        setRecordingSeconds(0);
+
+        if (wasCancelled) return;
+
+        if (!chunks.length) {
+          setErrorMessage("No voice audio was captured. Please try again.");
+          return;
+        }
+
+        attachRecordedVoice(buildVoiceFileFromChunks(chunks, recordedMimeType));
+      };
+
+      mediaRecorder.start();
+      setRecordingState("recording");
+      setRecordingSeconds(0);
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds((currentValue) => currentValue + 1);
+      }, 1000);
+      setErrorMessage("");
+    } catch (err) {
+      console.error("Voice recording start failed:", err);
+      clearVoiceRecordingResources();
+      setRecordingState("idle");
+      setRecordingSeconds(0);
+      setErrorMessage(
+        err?.name === "NotAllowedError"
+          ? "Microphone permission is required to record a voice message."
+          : "Unable to start voice recording on this browser."
+      );
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+
+    setRecordingState("processing");
+    recorder.stop();
+  };
+
+  const cancelVoiceRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    recordingCancelRef.current = true;
+
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+      return;
+    }
+
+    clearVoiceRecordingResources();
+    setRecordingState("idle");
+    setRecordingSeconds(0);
+  };
+
   const handleComposerAttachmentChange = (event) => {
     const nextFile = event.target.files?.[0];
     event.target.value = "";
 
     if (!nextFile) return;
+    if (recordingState === "recording") {
+      alert("Stop or cancel the voice recording before attaching a file.");
+      return;
+    }
+
+    const validationMessage = validateFile(nextFile, GENERAL_ATTACHMENT_OPTIONS);
+    if (validationMessage) {
+      alert(validationMessage);
+      return;
+    }
 
     setComposerAttachmentFile(nextFile);
     setComposerAttachmentPreviewUrl((currentValue) => {
@@ -1409,7 +1634,29 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                               </div>
                             ) : (
                               <>
-                                {message.image?.url ? (
+                                {message.attachment?.isAudio && message.attachment?.url ? (
+                                  <div className="chat-message__attachment chat-message__attachment--audio">
+                                    <div className="chat-message__file-icon">VOICE</div>
+                                    <div className="chat-message__attachment-meta">
+                                      <div className="fw-semibold text-dark text-break">
+                                        {message.attachment.originalName || "Voice message"}
+                                      </div>
+                                      <audio
+                                        controls
+                                        preload="metadata"
+                                        src={getChatAssetUrl(message.attachment.url)}
+                                        className="chat-message__audio"
+                                      >
+                                        Your browser does not support audio playback.
+                                      </audio>
+                                      <div className="small text-muted">
+                                        {[message.attachment.mimeType, formatAttachmentSize(message.attachment.size)]
+                                          .filter(Boolean)
+                                          .join(" | ") || "Audio attachment"}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : message.image?.url ? (
                                   <a
                                     href={getChatAssetUrl(message.image.url)}
                                     target="_blank"
@@ -1491,6 +1738,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                     ref={attachmentInputRef}
                     type="file"
                     className="d-none"
+                    accept={GENERAL_ATTACHMENT_ACCEPT}
                     onChange={handleComposerAttachmentChange}
                   />
                   <div className="chat-composer__header">
@@ -1503,12 +1751,12 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                         {selectedMentions.length} mentions
                       </span>
                       <span className="chat-inline-pill">
-                        {composerAttachmentFile ? "1 file attached" : "No file"}
+                        {composerAttachmentStatus}
                       </span>
                     </div>
                   </div>
                   <div className="small text-muted mb-2">
-                    {chatConfig.mentionHelpText} You can also attach one file with the message.
+                    {chatConfig.mentionHelpText} You can also attach one file or record a voice message.
                   </div>
                   <div
                     className={`chat-mention-layout${
@@ -1559,6 +1807,26 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                           alt={composerAttachmentFile?.name || "Selected chat upload"}
                           className="chat-image-preview-card__image"
                         />
+                      ) : isComposerAttachmentAudio ? (
+                        <div className="chat-image-preview-card__file chat-image-preview-card__file--audio">
+                          <div className="chat-message__file-icon">VOICE</div>
+                          <div className="chat-message__attachment-meta">
+                            <div className="fw-semibold text-dark text-break">
+                              {composerAttachmentFile?.name || "Voice message"}
+                            </div>
+                            <audio
+                              controls
+                              preload="metadata"
+                              src={composerAttachmentPreviewUrl}
+                              className="chat-message__audio"
+                            >
+                              Your browser does not support audio playback.
+                            </audio>
+                            <div className="small text-muted">
+                              {formatAttachmentSize(composerAttachmentFile?.size) || "Audio"}
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <div className="chat-image-preview-card__file">
                           <div className="chat-message__file-icon">FILE</div>
@@ -1608,11 +1876,50 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                     </div>
 
                     <div className="chat-composer__actions">
+                      {recordingState === "recording" ? (
+                        <>
+                          <span className="chat-voice-recorder__status" aria-live="polite">
+                            Recording {formatRecordingDuration(recordingSeconds)}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            onClick={stopVoiceRecording}
+                            disabled={sending}
+                          >
+                            Stop
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary"
+                            onClick={cancelVoiceRecording}
+                            disabled={sending}
+                          >
+                            Cancel Voice
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-outline-primary"
+                          onClick={() => {
+                            void startVoiceRecording();
+                          }}
+                          disabled={!supportsVoiceRecording || sending || recordingState === "processing"}
+                          title={
+                            supportsVoiceRecording
+                              ? "Record voice message"
+                              : "Voice recording is not supported in this browser"
+                          }
+                        >
+                          {recordingState === "processing" ? "Processing Voice..." : "Record Voice"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn-outline-primary"
                         onClick={openAttachmentPicker}
-                        disabled={sending}
+                        disabled={sending || recordingState !== "idle"}
                       >
                         {composerAttachmentFile ? "Change File" : "Add File"}
                       </button>
@@ -1625,7 +1932,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                         onClick={() => {
                           void sendMessage();
                         }}
-                        disabled={!canSendComposerMessage || sending}
+                        disabled={!canSendComposerMessage || sending || recordingState !== "idle"}
                       >
                         {sending
                           ? "Sending..."
