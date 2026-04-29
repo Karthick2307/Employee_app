@@ -117,8 +117,14 @@ const AUDIO_MIME_TYPE_CANDIDATES = [
   "audio/aac",
 ];
 
+const VOICE_RECORDING_START_ERROR = "Unable to start voice recording on this browser";
+
 const getSupportedAudioMimeType = () => {
-  if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.MediaRecorder === "undefined" ||
+    typeof window.MediaRecorder.isTypeSupported !== "function"
+  ) {
     return "";
   }
 
@@ -274,6 +280,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   const [updatingMessageId, setUpdatingMessageId] = useState("");
   const [deletingMessageId, setDeletingMessageId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [voiceRecordingError, setVoiceRecordingError] = useState("");
 
   const deferredGroupSearch = useDeferredValue(groupSearch);
   const deferredMessageSearch = useDeferredValue(messageSearch);
@@ -408,12 +415,17 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
     if (!selectedGroupId) {
       setMessages([]);
       resetEditingState();
+      setVoiceRecordingError("");
       return;
     }
 
     resetEditingState();
     void loadMessagesRef.current(selectedGroupId, true);
   }, [selectedGroupId, deferredMessageSearch]);
+
+  useEffect(() => {
+    setVoiceRecordingError("");
+  }, [selectedGroupId]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -716,7 +728,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
   const attachRecordedVoice = (voiceFile) => {
     const validationMessage = validateFile(voiceFile, GENERAL_ATTACHMENT_OPTIONS);
     if (validationMessage) {
-      setErrorMessage(validationMessage);
+      setVoiceRecordingError(validationMessage);
       return;
     }
 
@@ -728,26 +740,31 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
 
       return window.URL.createObjectURL(voiceFile);
     });
+    setVoiceRecordingError("");
     setErrorMessage("");
   };
 
   const startVoiceRecording = async () => {
-    if (!supportsVoiceRecording || recordingState !== "idle" || sending) {
-      if (!supportsVoiceRecording) {
-        setErrorMessage("Voice recording is not supported in this browser.");
-      }
+    setVoiceRecordingError("");
+
+    if (recordingState !== "idle" || sending) {
+      return;
+    }
+
+    if (!supportsVoiceRecording) {
+      setVoiceRecordingError(VOICE_RECORDING_START_ERROR);
       return;
     }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStreamRef.current = stream;
       clearComposerAttachment();
       const mimeType = getSupportedAudioMimeType();
       const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
       recordingChunksRef.current = [];
       recordingCancelRef.current = false;
-      recordingStreamRef.current = stream;
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -761,7 +778,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
         setRecordingState("idle");
         setRecordingSeconds(0);
         clearVoiceRecordingResources();
-        setErrorMessage("Voice recording failed. Please try again.");
+        setVoiceRecordingError("Voice recording failed. Please try again.");
       };
 
       mediaRecorder.onstop = () => {
@@ -778,7 +795,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
         if (wasCancelled) return;
 
         if (!chunks.length) {
-          setErrorMessage("No voice audio was captured. Please try again.");
+          setVoiceRecordingError("No voice audio was captured. Please try again.");
           return;
         }
 
@@ -791,17 +808,14 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
       recordingTimerRef.current = window.setInterval(() => {
         setRecordingSeconds((currentValue) => currentValue + 1);
       }, 1000);
+      setVoiceRecordingError("");
       setErrorMessage("");
     } catch (err) {
       console.error("Voice recording start failed:", err);
       clearVoiceRecordingResources();
       setRecordingState("idle");
       setRecordingSeconds(0);
-      setErrorMessage(
-        err?.name === "NotAllowedError"
-          ? "Microphone permission is required to record a voice message."
-          : "Unable to start voice recording on this browser."
-      );
+      setVoiceRecordingError(VOICE_RECORDING_START_ERROR);
     }
   };
 
@@ -844,6 +858,7 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
     }
 
     setComposerAttachmentFile(nextFile);
+    setVoiceRecordingError("");
     setComposerAttachmentPreviewUrl((currentValue) => {
       if (currentValue) {
         window.URL.revokeObjectURL(currentValue);
@@ -1876,45 +1891,47 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                     </div>
 
                     <div className="chat-composer__actions">
-                      {recordingState === "recording" ? (
-                        <>
-                          <span className="chat-voice-recorder__status" aria-live="polite">
-                            Recording {formatRecordingDuration(recordingSeconds)}
-                          </span>
+                      <div className="chat-voice-recorder">
+                        {recordingState === "recording" ? (
+                          <div className="chat-voice-recorder__controls">
+                            <span className="chat-voice-recorder__status" aria-live="polite">
+                              Recording {formatRecordingDuration(recordingSeconds)}
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-danger"
+                              onClick={stopVoiceRecording}
+                              disabled={sending}
+                            >
+                              Stop
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline-secondary"
+                              onClick={cancelVoiceRecording}
+                              disabled={sending}
+                            >
+                              Cancel Voice
+                            </button>
+                          </div>
+                        ) : (
                           <button
                             type="button"
-                            className="btn btn-danger"
-                            onClick={stopVoiceRecording}
-                            disabled={sending}
+                            className="btn btn-outline-primary"
+                            onClick={() => {
+                              void startVoiceRecording();
+                            }}
+                            disabled={sending || recordingState === "processing"}
+                            title={
+                              supportsVoiceRecording
+                                ? "Record voice message"
+                                : "Voice recording is not supported in this browser"
+                            }
                           >
-                            Stop
+                            {recordingState === "processing" ? "Processing Voice..." : "Record Voice"}
                           </button>
-                          <button
-                            type="button"
-                            className="btn btn-outline-secondary"
-                            onClick={cancelVoiceRecording}
-                            disabled={sending}
-                          >
-                            Cancel Voice
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-outline-primary"
-                          onClick={() => {
-                            void startVoiceRecording();
-                          }}
-                          disabled={!supportsVoiceRecording || sending || recordingState === "processing"}
-                          title={
-                            supportsVoiceRecording
-                              ? "Record voice message"
-                              : "Voice recording is not supported in this browser"
-                          }
-                        >
-                          {recordingState === "processing" ? "Processing Voice..." : "Record Voice"}
-                        </button>
-                      )}
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="btn btn-outline-primary"
@@ -1942,6 +1959,11 @@ export default function ChatModule({ chatType = "site", apiBasePath = "/chat" })
                       </button>
                     </div>
                   </div>
+                  {voiceRecordingError ? (
+                    <div className="chat-composer__voice-error" role="status">
+                      {voiceRecordingError}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : (

@@ -2132,6 +2132,9 @@ const applyTaskSubmission = ({ task, body, files = [] }) => {
   task.employeeAttachments = (files || []).map((file) => ({
     fileName: file.filename,
     originalName: file.originalname,
+    filePath: file.filename ? `/uploads/${file.filename}` : "",
+    mimeType: normalizeText(file.mimetype),
+    size: Number(file.size || 0),
   }));
   task.submittedAt = new Date();
   task.submissionTimingStatus = getSubmissionTimingStatus({

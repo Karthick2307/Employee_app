@@ -6,10 +6,43 @@ import { usePermissions } from "../context/usePermissions";
 import { startPostLoginWelcomeSession } from "../utils/postLoginWelcome";
 import loginBackground from "../images/login.jpg";
 
+function PasswordVisibilityIcon({ visible }) {
+  return (
+    <svg
+      className="login-password-toggle__icon"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {visible ? (
+        <>
+          <path d="M3 3l18 18" />
+          <path d="M10.58 10.58A2 2 0 0 0 13.42 13.42" />
+          <path d="M9.88 4.24A10.94 10.94 0 0 1 12 4c4.2 0 7.79 2.36 10 8a18.45 18.45 0 0 1-3.17 4.73" />
+          <path d="M6.61 6.61A17.85 17.85 0 0 0 2 12c2.21 5.64 5.8 8 10 8a10.8 10.8 0 0 0 5.39-1.61" />
+        </>
+      ) : (
+        <>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 export default function Login() {
   const { refresh } = usePermissions();
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -124,14 +157,26 @@ export default function Login() {
 
                   <div className="login-field mb-4">
                     <label className="form-label">Password</label>
-                    <input
-                      type="password"
-                      className="form-control login-input"
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
+                    <div className="login-password-control">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        className="form-control login-input login-password-input"
+                        placeholder="Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="login-password-toggle"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        aria-pressed={showPassword}
+                        onClick={() => setShowPassword((current) => !current)}
+                      >
+                        <PasswordVisibilityIcon visible={showPassword} />
+                      </button>
+                    </div>
                   </div>
 
                   <button className="btn btn-primary w-100 login-submit" disabled={loading}>

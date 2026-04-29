@@ -58,6 +58,8 @@ describe("checklist workflow submission", () => {
         {
           filename: "proof.pdf",
           originalname: "proof.pdf",
+          mimetype: "application/pdf",
+          size: 1234,
         },
       ],
     });
@@ -69,6 +71,9 @@ describe("checklist workflow submission", () => {
       {
         fileName: "proof.pdf",
         originalName: "proof.pdf",
+        filePath: "/uploads/proof.pdf",
+        mimeType: "application/pdf",
+        size: 1234,
       },
     ]);
     expect(task.checklistItems[0]).toEqual(

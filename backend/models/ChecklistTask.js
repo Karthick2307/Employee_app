@@ -12,6 +12,21 @@ const checklistTaskAttachmentSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    filePath: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    mimeType: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    size: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   { _id: false }
 );

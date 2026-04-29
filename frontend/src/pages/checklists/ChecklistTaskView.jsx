@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
   GENERAL_ATTACHMENT_ACCEPT,
   GENERAL_ATTACHMENT_OPTIONS,
+  validateFile,
   validateFiles,
 } from "../../utils/fileValidation";
 import {
@@ -91,10 +92,56 @@ const AUDIO_ATTACHMENT_EXTENSIONS = new Set([
   "mp3",
   "wav",
   "ogg",
+  "webm",
   "m4a",
   "aac",
   "flac",
 ]);
+
+const AUDIO_MIME_TYPE_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/aac",
+  "audio/mpeg",
+  "audio/wav",
+];
+
+const VOICE_RECORDING_START_ERROR = "Unable to start voice recording on this browser.";
+
+const getSupportedAudioMimeType = () => {
+  if (
+    typeof window === "undefined" ||
+    typeof window.MediaRecorder === "undefined" ||
+    typeof window.MediaRecorder.isTypeSupported !== "function"
+  ) {
+    return "";
+  }
+
+  return (
+    AUDIO_MIME_TYPE_CANDIDATES.find((mimeType) =>
+      window.MediaRecorder.isTypeSupported(mimeType)
+    ) || ""
+  );
+};
+
+const getAudioFileExtension = (mimeType) => {
+  const normalizedType = String(mimeType || "").toLowerCase();
+  if (normalizedType.includes("mp4") || normalizedType.includes("aac")) return "m4a";
+  if (normalizedType.includes("mpeg")) return "mp3";
+  if (normalizedType.includes("ogg")) return "ogg";
+  if (normalizedType.includes("wav")) return "wav";
+  return "webm";
+};
+
+const formatRecordingDuration = (value) => {
+  const totalSeconds = Math.max(0, Number(value || 0));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+};
 
 const PDF_ATTACHMENT_EXTENSIONS = new Set(["pdf"]);
 const SPREADSHEET_ATTACHMENT_EXTENSIONS = new Set(["xls", "xlsx", "csv"]);
@@ -125,6 +172,29 @@ const buildAttachmentUrl = (uploadBaseUrl, fileName) => {
 const getAttachmentTypeMeta = (file) => {
   const attachmentName = normalizeTaskText(file?.originalName || file?.fileName);
   const extension = getAttachmentExtension(attachmentName);
+  const mimeType = normalizeTaskText(file?.mimeType || file?.mimetype).toLowerCase();
+
+  if (mimeType.startsWith("audio/")) {
+    return {
+      kind: "audio",
+      label: "Audio",
+      icon: "AUD",
+      badgeClass: "bg-success-subtle text-success border",
+      description: "Audio preview available",
+      extensionLabel: extension ? extension.toUpperCase() : "AUDIO",
+    };
+  }
+
+  if (mimeType.startsWith("video/")) {
+    return {
+      kind: "video",
+      label: "Video",
+      icon: "VID",
+      badgeClass: "bg-danger-subtle text-danger border",
+      description: "Video preview available",
+      extensionLabel: extension ? extension.toUpperCase() : "VIDEO",
+    };
+  }
 
   if (IMAGE_ATTACHMENT_EXTENSIONS.has(extension)) {
     return {
@@ -227,6 +297,12 @@ const getAttachmentTypeMeta = (file) => {
 export default function ChecklistTaskView() {
   const { id } = useParams();
   const user = getUser();
+  const mediaRecorderRef = useRef(null);
+  const recordingStreamRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const recordingCancelRef = useRef(false);
+  const recordingTimerRef = useRef(null);
+  const recordingSecondsRef = useRef(0);
 
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -236,6 +312,12 @@ export default function ChecklistTaskView() {
   const [employeeRemarks, setEmployeeRemarks] = useState("");
   const [itemResponses, setItemResponses] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [recordingState, setRecordingState] = useState("idle");
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordedVoiceFile, setRecordedVoiceFile] = useState(null);
+  const [recordedVoicePreviewUrl, setRecordedVoicePreviewUrl] = useState("");
+  const [recordedVoiceDuration, setRecordedVoiceDuration] = useState(0);
+  const [voiceRecordingError, setVoiceRecordingError] = useState("");
   const uploadBaseUrl = (api.defaults.baseURL || "http://localhost:5000/api").replace(
     /\/api\/?$/,
     ""
@@ -251,6 +333,11 @@ export default function ChecklistTaskView() {
     String(task?.status || "").trim().toLowerCase() === "waiting_dependency";
 
   const canSubmit = isAssignedEmployee && task?.status === "open";
+  const supportsVoiceRecording =
+    typeof window !== "undefined" &&
+    typeof window.MediaRecorder !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia);
   const canDecide =
     isCurrentApprover && ["submitted", "nil_for_approval"].includes(String(task?.status || ""));
   const markSummary = getTaskMarkSummary(task || {});
@@ -282,6 +369,29 @@ export default function ChecklistTaskView() {
     ? "Review your submitted answers and track the approval progress."
     : "Review the task questions and the superior review details.";
 
+  const clearVoiceRecordingResources = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    recordingStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+    mediaRecorderRef.current = null;
+  };
+
+  const clearRecordedVoice = () => {
+    setRecordedVoiceFile(null);
+    setRecordedVoiceDuration(0);
+    setRecordedVoicePreviewUrl((currentValue) => {
+      if (currentValue) {
+        window.URL.revokeObjectURL(currentValue);
+      }
+
+      return "";
+    });
+  };
+
   const loadTask = useCallback(async () => {
     setLoading(true);
 
@@ -301,6 +411,16 @@ export default function ChecklistTaskView() {
           : []
       );
       setAttachments([]);
+      setVoiceRecordingError("");
+      setRecordedVoiceFile(null);
+      setRecordedVoiceDuration(0);
+      setRecordedVoicePreviewUrl((currentValue) => {
+        if (currentValue) {
+          window.URL.revokeObjectURL(currentValue);
+        }
+
+        return "";
+      });
       setDecisionRemarks("");
     } catch (err) {
       console.error("Checklist task load failed:", err);
@@ -313,6 +433,29 @@ export default function ChecklistTaskView() {
   useEffect(() => {
     void loadTask();
   }, [loadTask]);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        window.clearInterval(recordingTimerRef.current);
+      }
+
+      if (mediaRecorderRef.current?.state === "recording") {
+        recordingCancelRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
+
+      recordingStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordedVoicePreviewUrl) {
+        window.URL.revokeObjectURL(recordedVoicePreviewUrl);
+      }
+    };
+  }, [recordedVoicePreviewUrl]);
 
   const updateItemResponse = (checklistItemId, key, value) => {
     setItemResponses((prev) =>
@@ -335,10 +478,136 @@ export default function ChecklistTaskView() {
       return;
     }
 
-    setAttachments(files);
+    setAttachments(Array.from(files));
+    setVoiceRecordingError("");
+  };
+
+  const buildVoiceFileFromChunks = (chunks, mimeType) => {
+    const resolvedMimeType =
+      String(mimeType || chunks[0]?.type || "").split(";")[0] || "audio/webm";
+    const extension = getAudioFileExtension(resolvedMimeType);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const audioBlob = new Blob(chunks, { type: resolvedMimeType });
+
+    return new File([audioBlob], `checklist-voice-${timestamp}.${extension}`, {
+      type: resolvedMimeType,
+    });
+  };
+
+  const attachRecordedVoice = (voiceFile, durationSeconds) => {
+    const validationMessage = validateFile(voiceFile, GENERAL_ATTACHMENT_OPTIONS);
+
+    if (validationMessage) {
+      setVoiceRecordingError(validationMessage);
+      return;
+    }
+
+    setRecordedVoiceFile(voiceFile);
+    setRecordedVoiceDuration(durationSeconds);
+    setRecordedVoicePreviewUrl((currentValue) => {
+      if (currentValue) {
+        window.URL.revokeObjectURL(currentValue);
+      }
+
+      return window.URL.createObjectURL(voiceFile);
+    });
+    setVoiceRecordingError("");
+  };
+
+  const startVoiceRecording = async () => {
+    setVoiceRecordingError("");
+
+    if (recordingState !== "idle" || saving) {
+      return;
+    }
+
+    if (!supportsVoiceRecording) {
+      setVoiceRecordingError(VOICE_RECORDING_START_ERROR);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStreamRef.current = stream;
+      clearRecordedVoice();
+
+      const mimeType = getSupportedAudioMimeType();
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recordingChunksRef.current = [];
+      recordingCancelRef.current = false;
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onerror = () => {
+        recordingCancelRef.current = true;
+        setRecordingState("idle");
+        setRecordingSeconds(0);
+        recordingSecondsRef.current = 0;
+        clearVoiceRecordingResources();
+        setVoiceRecordingError("Voice recording failed. Please try again.");
+      };
+
+      mediaRecorder.onstop = () => {
+        const chunks = recordingChunksRef.current;
+        const wasCancelled = recordingCancelRef.current;
+        const recordedMimeType = mediaRecorder.mimeType || mimeType;
+        const durationSeconds = recordingSecondsRef.current;
+
+        recordingChunksRef.current = [];
+        recordingCancelRef.current = false;
+        clearVoiceRecordingResources();
+        setRecordingState("idle");
+        setRecordingSeconds(0);
+        recordingSecondsRef.current = 0;
+
+        if (wasCancelled) return;
+
+        if (!chunks.length) {
+          setVoiceRecordingError("No voice audio was captured. Please try again.");
+          return;
+        }
+
+        attachRecordedVoice(buildVoiceFileFromChunks(chunks, recordedMimeType), durationSeconds);
+      };
+
+      mediaRecorder.start();
+      setRecordingState("recording");
+      setRecordingSeconds(0);
+      recordingSecondsRef.current = 0;
+      recordingTimerRef.current = window.setInterval(() => {
+        recordingSecondsRef.current += 1;
+        setRecordingSeconds(recordingSecondsRef.current);
+      }, 1000);
+    } catch (err) {
+      console.error("Checklist voice recording start failed:", err);
+      clearVoiceRecordingResources();
+      setRecordingState("idle");
+      setRecordingSeconds(0);
+      recordingSecondsRef.current = 0;
+      setVoiceRecordingError(VOICE_RECORDING_START_ERROR);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+
+    setRecordingState("processing");
+    recorder.stop();
   };
 
   const handleSubmitTask = async (submissionType = "normal") => {
+    if (recordingState !== "idle") {
+      setVoiceRecordingError("Stop the voice recording before submitting this task.");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -359,6 +628,10 @@ export default function ChecklistTaskView() {
       Array.from(attachments || []).forEach((file) => {
         payload.append("attachments", file);
       });
+
+      if (recordedVoiceFile) {
+        payload.append("attachments", recordedVoiceFile);
+      }
 
       await api.post(`/checklists/tasks/${id}/submit`, payload, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -758,6 +1031,75 @@ export default function ChecklistTaskView() {
                 <div className="small text-muted mt-2">
                   Upload supporting files along with the submission.
                 </div>
+                {attachments.length ? (
+                  <div className="small text-muted mt-1">
+                    {attachments.length} file{attachments.length === 1 ? "" : "s"} selected.
+                  </div>
+                ) : null}
+
+                <div className="checklist-voice-recorder mt-3">
+                  {recordingState === "recording" ? (
+                    <div className="d-flex flex-wrap align-items-center gap-2">
+                      <span className="checklist-voice-recorder__status" aria-live="polite">
+                        Recording {formatRecordingDuration(recordingSeconds)}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={stopVoiceRecording}
+                        disabled={saving}
+                      >
+                        Stop
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-primary"
+                      onClick={() => {
+                        void startVoiceRecording();
+                      }}
+                      disabled={saving || recordingState === "processing"}
+                      title={
+                        supportsVoiceRecording
+                          ? "Record voice attachment"
+                          : "Voice recording is not supported in this browser"
+                      }
+                    >
+                      {recordingState === "processing" ? "Processing Voice..." : "Record Voice"}
+                    </button>
+                  )}
+
+                  {voiceRecordingError ? (
+                    <div className="checklist-voice-recorder__error" role="status">
+                      {voiceRecordingError}
+                    </div>
+                  ) : null}
+
+                  {recordedVoiceFile && recordedVoicePreviewUrl ? (
+                    <div className="checklist-voice-preview">
+                      <div className="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                          <div className="fw-semibold text-break">{recordedVoiceFile.name}</div>
+                          <div className="small text-muted">
+                            Duration {formatRecordingDuration(recordedVoiceDuration)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={clearRecordedVoice}
+                          disabled={saving}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <audio controls className="w-100 mt-2" src={recordedVoicePreviewUrl}>
+                        Your browser does not support audio playback.
+                      </audio>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
@@ -783,7 +1125,7 @@ export default function ChecklistTaskView() {
                 type="button"
                 className="btn btn-outline-secondary"
                 onClick={() => handleSubmitTask("nil")}
-                disabled={saving}
+                disabled={saving || recordingState !== "idle"}
               >
                 {saving ? "Submitting..." : "Nil For Approval"}
               </button>
@@ -791,7 +1133,7 @@ export default function ChecklistTaskView() {
                 type="button"
                 className="btn btn-primary"
                 onClick={() => handleSubmitTask("normal")}
-                disabled={saving}
+                disabled={saving || recordingState !== "idle"}
               >
                 {saving ? "Submitting..." : "Submit For Approval"}
               </button>
