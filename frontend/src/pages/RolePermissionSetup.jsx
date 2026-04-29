@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api/axios";
 import { usePermissions } from "../context/usePermissions";
 
@@ -62,6 +62,49 @@ const updateMatrixRows = (rows = [], moduleKey, fieldKey, checked) =>
         }
       : row
   );
+
+const getActionFieldKeys = (actions = []) =>
+  actions.map((action) => actionFieldMap[action.key]).filter(Boolean);
+
+const buildActionPatch = (fieldKeys = [], checked) =>
+  fieldKeys.reduce((result, fieldKey) => {
+    result[fieldKey] = checked;
+    return result;
+  }, {});
+
+const updateAllMatrixRows = (rows = [], fieldKeys = [], checked) =>
+  rows.map((row) => ({
+    ...row,
+    ...buildActionPatch(fieldKeys, checked),
+  }));
+
+const updateMatrixColumnRows = (rows = [], fieldKey, checked) =>
+  rows.map((row) => ({
+    ...row,
+    [fieldKey]: checked,
+  }));
+
+const getMatrixSelectionState = (rows = [], fieldKeys = []) => {
+  const totalCount = rows.length * fieldKeys.length;
+  const selectedCount = rows.reduce(
+    (count, row) => count + fieldKeys.filter((fieldKey) => Boolean(row[fieldKey])).length,
+    0
+  );
+
+  return {
+    all: totalCount > 0 && selectedCount === totalCount,
+    some: selectedCount > 0 && selectedCount < totalCount,
+  };
+};
+
+const getMatrixColumnSelectionState = (rows = [], fieldKey) => {
+  const selectedCount = rows.filter((row) => Boolean(row[fieldKey])).length;
+
+  return {
+    all: rows.length > 0 && selectedCount === rows.length,
+    some: selectedCount > 0 && selectedCount < rows.length,
+  };
+};
 
 const flattenSubDepartments = (rows = [], trail = [], department = null) =>
   rows.flatMap((item) => {
@@ -175,43 +218,114 @@ const hasAnyAccessMappings = (accessForm = {}) =>
     accessForm.accessEmployeeIds,
   ].some((rows) => Array.isArray(rows) && rows.length);
 
-function PermissionMatrixTable({ actions, rows, onToggle }) {
+function MatrixBulkCheckbox({ checked, indeterminate, label, onChange }) {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = Boolean(indeterminate) && !checked;
+    }
+  }, [checked, indeterminate]);
+
   return (
-    <div className="table-responsive">
-      <table className="table table-bordered align-middle">
-        <thead className="table-dark">
-          <tr>
-            <th style={{ width: "72px" }}>S.No</th>
-            <th>Module / Screen Name</th>
-            {actions.map((action) => (
-              <th key={action.key} className="text-center">
-                {action.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.moduleKey}>
-              <td>{row.srNo}</td>
-              <td>{row.moduleName}</td>
-              {actions.map((action) => (
-                <td key={action.key} className="text-center">
-                  <input
-                    type="checkbox"
-                    className="form-check-input"
-                    checked={Boolean(row[actionFieldMap[action.key]])}
-                    onChange={(event) =>
-                      onToggle(row.moduleKey, actionFieldMap[action.key], event.target.checked)
-                    }
-                  />
-                </td>
-              ))}
+    <input
+      ref={inputRef}
+      type="checkbox"
+      className="form-check-input"
+      checked={Boolean(checked)}
+      onChange={onChange}
+      aria-label={label}
+      title={label}
+    />
+  );
+}
+
+function PermissionMatrixTable({ actions, rows, onToggle, onToggleAction, onToggleAll }) {
+  const actionFieldKeys = useMemo(() => getActionFieldKeys(actions), [actions]);
+  const matrixSelection = useMemo(
+    () => getMatrixSelectionState(rows, actionFieldKeys),
+    [actionFieldKeys, rows]
+  );
+  const columnSelections = useMemo(
+    () =>
+      actionFieldKeys.reduce((result, fieldKey) => {
+        result[fieldKey] = getMatrixColumnSelectionState(rows, fieldKey);
+        return result;
+      }, {}),
+    [actionFieldKeys, rows]
+  );
+
+  return (
+    <>
+      <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <label className="form-check d-inline-flex align-items-center gap-2 mb-0">
+          <MatrixBulkCheckbox
+            checked={matrixSelection.all}
+            indeterminate={matrixSelection.some}
+            label="Select all permissions"
+            onChange={(event) => onToggleAll(event.target.checked)}
+          />
+          <span className="form-check-label fw-semibold">Select all</span>
+        </label>
+        <button
+          type="button"
+          className="btn btn-sm btn-outline-secondary"
+          onClick={() => onToggleAll(false)}
+          disabled={!rows.length || !actionFieldKeys.length}
+        >
+          Clear all
+        </button>
+      </div>
+
+      <div className="table-responsive">
+        <table className="table table-bordered align-middle">
+          <thead className="table-dark">
+            <tr>
+              <th style={{ width: "72px" }}>S.No</th>
+              <th>Module / Screen Name</th>
+              {actions.map((action) => {
+                const fieldKey = actionFieldMap[action.key];
+                const columnSelection = columnSelections[fieldKey] || { all: false, some: false };
+
+                return (
+                  <th key={action.key} className="text-center">
+                    <div className="d-flex flex-column align-items-center gap-1">
+                      <span>{action.label}</span>
+                      <MatrixBulkCheckbox
+                        checked={columnSelection.all}
+                        indeterminate={columnSelection.some}
+                        label={`Select all ${action.label} permissions`}
+                        onChange={(event) => onToggleAction(fieldKey, event.target.checked)}
+                      />
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.moduleKey}>
+                <td>{row.srNo}</td>
+                <td>{row.moduleName}</td>
+                {actions.map((action) => (
+                  <td key={action.key} className="text-center">
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={Boolean(row[actionFieldMap[action.key]])}
+                      onChange={(event) =>
+                        onToggle(row.moduleKey, actionFieldMap[action.key], event.target.checked)
+                      }
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -664,6 +778,16 @@ export default function RolePermissionSetup() {
             <PermissionMatrixTable
               actions={actions}
               rows={roleMatrixRows}
+              onToggleAll={(checked) =>
+                setRoleMatrixRows((currentValue) =>
+                  updateAllMatrixRows(currentValue, getActionFieldKeys(actions), checked)
+                )
+              }
+              onToggleAction={(fieldKey, checked) =>
+                setRoleMatrixRows((currentValue) =>
+                  updateMatrixColumnRows(currentValue, fieldKey, checked)
+                )
+              }
               onToggle={(moduleKey, fieldKey, checked) =>
                 setRoleMatrixRows((currentValue) =>
                   updateMatrixRows(currentValue, moduleKey, fieldKey, checked)
@@ -893,6 +1017,16 @@ export default function RolePermissionSetup() {
             <PermissionMatrixTable
               actions={actions}
               rows={overrideRows}
+              onToggleAll={(checked) =>
+                setOverrideRows((currentValue) =>
+                  updateAllMatrixRows(currentValue, getActionFieldKeys(actions), checked)
+                )
+              }
+              onToggleAction={(fieldKey, checked) =>
+                setOverrideRows((currentValue) =>
+                  updateMatrixColumnRows(currentValue, fieldKey, checked)
+                )
+              }
               onToggle={(moduleKey, fieldKey, checked) =>
                 setOverrideRows((currentValue) =>
                   updateMatrixRows(currentValue, moduleKey, fieldKey, checked)
