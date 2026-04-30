@@ -1,0 +1,651 @@
+const Employee = require("../models/Employee");
+const Department = require("../models/Department");
+const Site = require("../models/Site");
+const ExcelJS = require("exceljs");
+const bcrypt = require("bcryptjs");
+const { Types } = require("mongoose");
+const {
+  buildEmployeeScopeFilter,
+  isAllScope,
+  resolveAccessibleEmployeeIds,
+} = require("../services/accessScope.service");
+
+const normalizeSites = (value) =>
+  Array.isArray(value) ? value : value ? [value] : [];
+
+const normalizeIdList = (value) => {
+  const rawValues = Array.isArray(value) ? value : value ? [value] : [];
+  const seen = new Set();
+
+  return rawValues
+    .map((item) => String(item?._id || item || "").trim())
+    .filter(Boolean)
+    .filter((item) => {
+      if (seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+};
+
+const normalizeDocumentList = (value) =>
+  (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean);
+
+const isSubDepartmentMatch = (row, subDepartmentRef) =>
+  String(row?._id) === String(subDepartmentRef) ||
+  String(row?.name || "").trim().toLowerCase() ===
+    String(subDepartmentRef || "").trim().toLowerCase();
+
+const findSubDepartmentById = (rows = [], subDepartmentId) => {
+  for (const row of rows) {
+    if (String(row._id) === String(subDepartmentId)) return row;
+    const child = findSubDepartmentById(row.children || [], subDepartmentId);
+    if (child) return child;
+  }
+  return null;
+};
+
+const findSubDepartmentTrail = (rows = [], subDepartmentRef, trail = []) => {
+  for (const row of rows) {
+    const nextTrail = [...trail, row.name];
+    if (isSubDepartmentMatch(row, subDepartmentRef)) return nextTrail;
+
+    const childTrail = findSubDepartmentTrail(row.children || [], subDepartmentRef, nextTrail);
+    if (childTrail) return childTrail;
+  }
+
+  return null;
+};
+
+const findSubDepartmentName = (department, subDepartmentRef) => {
+  if (!department || !subDepartmentRef) return "";
+  const trail = findSubDepartmentTrail(department.subDepartments || [], subDepartmentRef);
+  return trail?.[trail.length - 1] || "";
+};
+
+const findSubDepartmentPath = (department, subDepartmentRef) => {
+  if (!department || !subDepartmentRef) return "";
+  const trail = findSubDepartmentTrail(department.subDepartments || [], subDepartmentRef);
+  return trail?.join(" > ") || "";
+};
+
+const findSubDepartmentDetails = (departments, subDepartmentRefs) =>
+  normalizeIdList(subDepartmentRefs)
+    .map((subDepartmentRef) => {
+      for (const department of normalizeDocumentList(departments)) {
+        const name = findSubDepartmentName(department, subDepartmentRef);
+        const path = findSubDepartmentPath(department, subDepartmentRef);
+
+        if (!name && !path) continue;
+
+        return {
+          _id: subDepartmentRef,
+          departmentId: String(department._id || ""),
+          departmentName: department.name || "",
+          name,
+          path:
+            department.name && (path || name)
+              ? `${department.name} > ${path || name}`
+              : path || name,
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+
+const buildDepartmentDetails = (departments) =>
+  normalizeDocumentList(departments).map((department) => ({
+    _id: String(department._id || ""),
+    name: department.name || "",
+    headNames: department.headNames || [],
+  }));
+
+const findSubSiteById = (rows = [], subSiteId) => {
+  for (const row of rows) {
+    if (String(row._id) === String(subSiteId)) return row;
+    const child = findSubSiteById(row.children || [], subSiteId);
+    if (child) return child;
+  }
+  return null;
+};
+
+const findSubSiteTrail = (rows = [], subSiteId, trail = []) => {
+  for (const row of rows) {
+    const nextTrail = [...trail, row.name];
+    if (String(row._id) === String(subSiteId)) return nextTrail;
+
+    const childTrail = findSubSiteTrail(row.children || [], subSiteId, nextTrail);
+    if (childTrail) return childTrail;
+  }
+  return null;
+};
+
+const formatEmployeeDisplayName = (employee) => {
+  if (!employee) return "";
+  const code = String(employee.employeeCode || "").trim();
+  const name = String(employee.employeeName || "").trim();
+  if (code && name) return `${code} - ${name}`;
+  return code || name;
+};
+
+const formatSiteDisplayName = (site) => {
+  if (!site) return "";
+  const companyName = String(site.companyName || "").trim();
+  const name = String(site.name || "").trim();
+  if (companyName && name) return `${companyName} - ${name}`;
+  return name || companyName;
+};
+
+const parseSubSitesPayload = (rawValue) => {
+  if (rawValue === undefined || rawValue === null || rawValue === "") return [];
+
+  let parsed = rawValue;
+
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      const error = new Error("Sub sites payload must be valid JSON");
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    const error = new Error("Sub sites payload must be an array");
+    error.status = 400;
+    throw error;
+  }
+
+  return parsed
+    .map((row) => ({
+      site: String(row?.site || "").trim(),
+      subSite: String(row?.subSite || "").trim(),
+    }))
+    .filter((row) => row.site && row.subSite);
+};
+
+const validateSubSites = async (siteIds, rawSubSites) => {
+  const subSiteRows = parseSubSitesPayload(rawSubSites);
+  if (!subSiteRows.length) return [];
+
+  const selectedSiteIds = new Set((siteIds || []).map((id) => String(id)));
+  const hasInvalidSiteSelection = subSiteRows.some(
+    (row) => !selectedSiteIds.has(String(row.site))
+  );
+
+  if (hasInvalidSiteSelection) {
+    const error = new Error("Selected sub sites must belong to selected sites");
+    error.status = 400;
+    throw error;
+  }
+
+  const uniqueSiteIds = [...new Set(subSiteRows.map((row) => String(row.site)))];
+  const siteRows = await Site.find(
+    { _id: { $in: uniqueSiteIds } },
+    "name subSites"
+  );
+  const siteMap = new Map(siteRows.map((row) => [String(row._id), row]));
+
+  const dedupe = new Set();
+  const normalized = [];
+
+  for (const row of subSiteRows) {
+    const site = siteMap.get(String(row.site));
+    if (!site) {
+      const error = new Error("One or more selected sites do not exist");
+      error.status = 400;
+      throw error;
+    }
+
+    const hasSubSite = !!findSubSiteById(site.subSites || [], row.subSite);
+    if (!hasSubSite) {
+      const error = new Error("One or more selected sub sites are invalid");
+      error.status = 400;
+      throw error;
+    }
+
+    const key = `${row.site}:${row.subSite}`;
+    if (dedupe.has(key)) continue;
+    dedupe.add(key);
+
+    normalized.push({
+      site: row.site,
+      subSite: row.subSite,
+    });
+  }
+
+  return normalized;
+};
+
+const validateDepartmentAndSubDepartment = async (departmentId, subDepartmentId) => {
+  const normalizedDepartmentIds = normalizeIdList(departmentId);
+  const normalizedSubDepartmentIds = normalizeIdList(subDepartmentId);
+  if (!normalizedDepartmentIds.length) {
+    const error = new Error("At least one department is required");
+    error.status = 400;
+    throw error;
+  }
+
+  const departmentRows = await Department.find(
+    { _id: { $in: normalizedDepartmentIds } },
+    "name subDepartments"
+  );
+
+  if (departmentRows.length !== normalizedDepartmentIds.length) {
+    const error = new Error("One or more selected departments are invalid");
+    error.status = 400;
+    throw error;
+  }
+
+  if (!normalizedSubDepartmentIds.length) {
+    return {
+      department: normalizedDepartmentIds,
+      subDepartment: [],
+    };
+  }
+
+  for (const subDepartmentRef of normalizedSubDepartmentIds) {
+    const isValid = departmentRows.some((department) =>
+      !!findSubDepartmentById(department.subDepartments || [], subDepartmentRef)
+    );
+
+    if (!isValid) {
+      const error = new Error(
+        "Selected sub department does not belong to selected department"
+      );
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  return {
+    department: normalizedDepartmentIds,
+    subDepartment: normalizedSubDepartmentIds,
+  };
+};
+
+const validateSuperiorEmployee = async (superiorEmployeeId, employeeId = null) => {
+  const normalizedId = String(superiorEmployeeId || "").trim();
+  if (!normalizedId) return null;
+
+  if (employeeId && String(normalizedId) === String(employeeId)) {
+    const error = new Error("Employee cannot be assigned as their own superior");
+    error.status = 400;
+    throw error;
+  }
+
+  const superior = await Employee.findById(normalizedId, "_id");
+  if (!superior) {
+    const error = new Error("Selected superior employee does not exist");
+    error.status = 400;
+    throw error;
+  }
+
+  return normalizedId;
+};
+
+const mapSubSitesForEmployee = (employee) => {
+  const siteRows = employee.sites || [];
+  const subSiteRows = employee.subSites || [];
+
+  return subSiteRows
+    .map((row) => {
+      const siteId = row.site?._id || row.site;
+      const subSiteId = row.subSite?._id || row.subSite;
+      const site = siteRows.find((item) => String(item._id) === String(siteId));
+      if (!site) return null;
+
+      const trail = findSubSiteTrail(site.subSites || [], subSiteId);
+      if (!trail) return null;
+
+      return {
+        siteId: String(site._id),
+        siteName: formatSiteDisplayName(site),
+        subSiteId: String(subSiteId),
+        subSiteName: trail[trail.length - 1] || "",
+        subSitePath: `${formatSiteDisplayName(site)} > ${trail.join(" > ")}`,
+      };
+    })
+    .filter(Boolean);
+};
+
+const mapEmployee = (employeeDoc) => {
+  const employee = employeeDoc.toObject ? employeeDoc.toObject() : employeeDoc;
+  const departmentDetails = buildDepartmentDetails(employee.department);
+  const departmentNames = departmentDetails.map((row) => row.name).filter(Boolean);
+  const subSiteDetails = mapSubSitesForEmployee(employee);
+  const subSitePaths = subSiteDetails.map((row) => row.subSitePath);
+  const subDepartmentDetails = findSubDepartmentDetails(
+    employee.department,
+    employee.subDepartment
+  );
+  const subDepartmentNames = subDepartmentDetails.map((row) => row.name).filter(Boolean);
+  const subDepartmentPaths = subDepartmentDetails.map((row) => row.path).filter(Boolean);
+
+  return {
+    ...employee,
+    departmentIds: normalizeIdList(employee.department),
+    departmentDetails,
+    departmentName: departmentNames.join(", "),
+    departmentDisplay: departmentNames.join(", "),
+    subDepartment: normalizeIdList(employee.subDepartment),
+    superiorEmployeeName: formatEmployeeDisplayName(employee.superiorEmployee),
+    subDepartmentDetails,
+    subDepartmentNames,
+    subDepartmentPaths,
+    subDepartmentName: subDepartmentNames.join(", "),
+    subDepartmentPath: subDepartmentPaths.join(", "),
+    subDepartmentDisplay: subDepartmentPaths.join(", "),
+    subSiteDetails,
+    subSitePaths,
+    subSiteDisplay: subSitePaths.join(", "),
+  };
+};
+
+exports.getEmployees = async (req, res) => {
+  try {
+    const { search = "", status = "", department = "" } = req.query;
+    const scopeFilter = await buildEmployeeScopeFilter(req.access || {});
+    const filter = { ...scopeFilter };
+
+    if (search) {
+      filter.$or = [
+        { employeeCode: { $regex: search, $options: "i" } },
+        { employeeName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { mobile: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    if (status === "active") filter.isActive = true;
+    if (status === "inactive") filter.isActive = false;
+    if (department) filter.department = department;
+
+    const employees = await Employee.find(filter)
+      .populate("department", "name subDepartments")
+      .populate("designation", "name")
+      .populate("superiorEmployee", "employeeCode employeeName")
+      .populate("sites", "name companyName subSites")
+      .sort({ createdAt: -1 });
+
+    res.json(employees.map(mapEmployee));
+  } catch (err) {
+    console.error("Get employees error:", err);
+    res.status(500).json({ message: "Failed to load employees" });
+  }
+};
+
+exports.getEmployeeById = async (req, res) => {
+  try {
+    if (!isAllScope(req.access || {})) {
+      const accessibleEmployeeIds = await resolveAccessibleEmployeeIds(req.access || {});
+      const isAccessible = accessibleEmployeeIds.includes(String(req.params.id || ""));
+
+      if (!isAccessible) {
+        return res.status(403).json({ message: "You do not have access to this employee record" });
+      }
+    }
+
+    const emp = await Employee.findOne({ _id: req.params.id })
+      .populate("department", "name subDepartments")
+      .populate("designation", "name")
+      .populate("superiorEmployee", "employeeCode employeeName")
+      .populate("sites", "name companyName subSites");
+
+    if (!emp) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    res.json(mapEmployee(emp));
+  } catch (err) {
+    console.error("Get employee by id error:", err);
+    res.status(500).json({ message: "Employee not found" });
+  }
+};
+
+exports.createEmployee = async (req, res) => {
+  try {
+    const rawPassword = String(req.body.password || "").trim();
+
+    if (!rawPassword) {
+      return res.status(400).json({ message: "Employee login password is required" });
+    }
+
+    if (rawPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Employee login password must be at least 6 characters" });
+    }
+
+    const sites = normalizeSites(req.body.sites);
+    const departmentSelection = await validateDepartmentAndSubDepartment(
+      req.body.department,
+      req.body.subDepartment
+    );
+    const superiorEmployee = await validateSuperiorEmployee(req.body.superiorEmployee);
+    const subSites = await validateSubSites(sites, req.body.subSites);
+
+    const employee = new Employee({
+      ...req.body,
+      password: await bcrypt.hash(rawPassword, 10),
+      department: departmentSelection.department,
+      subDepartment: departmentSelection.subDepartment,
+      superiorEmployee: superiorEmployee || null,
+      isActive: true,
+      sites,
+      subSites,
+      photo: req.file ? req.file.filename : null,
+    });
+
+    await employee.save();
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Create employee error:", err);
+    res
+      .status(err.status || 500)
+      .json({ message: err.message || "Failed to create employee" });
+  }
+};
+
+exports.updateEmployee = async (req, res) => {
+  try {
+    const rawPassword = String(req.body.password || "").trim();
+    const sites = normalizeSites(req.body.sites);
+    const departmentSelection = await validateDepartmentAndSubDepartment(
+      req.body.department,
+      req.body.subDepartment
+    );
+    const hasSubSitesField = Object.prototype.hasOwnProperty.call(req.body, "subSites");
+    const hasSuperiorEmployeeField = Object.prototype.hasOwnProperty.call(
+      req.body,
+      "superiorEmployee"
+    );
+    const superiorEmployee = hasSuperiorEmployeeField
+      ? await validateSuperiorEmployee(req.body.superiorEmployee, req.params.id)
+      : undefined;
+    const subSites = hasSubSitesField
+      ? await validateSubSites(sites, req.body.subSites)
+      : undefined;
+
+    const data = {
+      ...req.body,
+      department: departmentSelection.department,
+      subDepartment: departmentSelection.subDepartment,
+      sites,
+    };
+
+    delete data.password;
+
+    if (hasSubSitesField) {
+      data.subSites = subSites;
+    }
+
+    if (hasSuperiorEmployeeField) {
+      data.superiorEmployee = superiorEmployee || null;
+    }
+
+    if (req.file) {
+      data.photo = req.file.filename;
+    }
+
+    if (rawPassword) {
+      if (rawPassword.length < 6) {
+        return res
+          .status(400)
+          .json({ message: "Employee login password must be at least 6 characters" });
+      }
+
+      data.password = await bcrypt.hash(rawPassword, 10);
+    }
+
+    await Employee.findByIdAndUpdate(req.params.id, data, { new: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Update employee error:", err);
+    res
+      .status(err.status || 500)
+      .json({ message: err.message || "Failed to update employee" });
+  }
+};
+
+exports.deleteEmployee = async (req, res) => {
+  try {
+    const employee = await Employee.findById(req.params.id);
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    employee.isActive = false;
+    await employee.save();
+
+    res.json({ success: true, isActive: false });
+  } catch (err) {
+    res.status(500).json({ message: "Delete failed" });
+  }
+};
+
+exports.bulkDeleteEmployees = async (req, res) => {
+  try {
+    const employeeIds = Array.isArray(req.body?.employeeIds)
+      ? req.body.employeeIds.map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+    const uniqueEmployeeIds = [...new Set(employeeIds)];
+
+    if (!uniqueEmployeeIds.length) {
+      return res.status(400).json({ message: "Select at least one employee to delete" });
+    }
+
+    if (uniqueEmployeeIds.some((id) => !Types.ObjectId.isValid(id))) {
+      return res.status(400).json({ message: "One or more selected employees are invalid" });
+    }
+
+    const existingEmployees = await Employee.find(
+      { _id: { $in: uniqueEmployeeIds } },
+      "_id"
+    ).lean();
+
+    if (!existingEmployees.length) {
+      return res.status(404).json({ message: "Selected employees were not found" });
+    }
+
+    const existingEmployeeIds = existingEmployees.map((employee) => employee._id);
+
+    await Employee.updateMany(
+      { _id: { $in: existingEmployeeIds } },
+      { $set: { isActive: false } }
+    );
+
+    res.json({
+      success: true,
+      deletedCount: existingEmployeeIds.length,
+    });
+  } catch (err) {
+    console.error("Bulk delete employees error:", err);
+    res.status(500).json({ message: "Failed to delete selected employees" });
+  }
+};
+
+exports.toggleEmployeeStatus = async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    emp.isActive = !emp.isActive;
+    await emp.save();
+
+    res.json({ success: true, isActive: emp.isActive });
+  } catch (err) {
+    res.status(500).json({ message: "Status update failed" });
+  }
+};
+
+exports.exportEmployeesExcel = async (req, res) => {
+  try {
+    const { status = "", department = "" } = req.query;
+
+    const filter = {
+      ...(await buildEmployeeScopeFilter(req.access || {})),
+    };
+    if (status === "active") filter.isActive = true;
+    if (status === "inactive") filter.isActive = false;
+    if (department) filter.department = department;
+
+    const employees = await Employee.find(filter)
+      .populate("department", "name subDepartments")
+      .populate("designation", "name")
+      .populate("superiorEmployee", "employeeCode employeeName")
+      .populate("sites", "name companyName subSites");
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Employees");
+
+    sheet.columns = [
+      { header: "Employee Code", key: "employeeCode", width: 20 },
+      { header: "Employee Name", key: "employeeName", width: 25 },
+      { header: "Mobile", key: "mobile", width: 15 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "Departments", key: "department", width: 30 },
+      { header: "Sub Departments", key: "subDepartment", width: 32 },
+      { header: "Designation", key: "designation", width: 20 },
+      { header: "Superior Employee", key: "superiorEmployee", width: 30 },
+      { header: "Sites", key: "sites", width: 30 },
+      { header: "Sub Sites", key: "subSites", width: 40 },
+      { header: "Status", key: "status", width: 15 },
+    ];
+
+    employees.map(mapEmployee).forEach((e) => {
+      sheet.addRow({
+        employeeCode: e.employeeCode,
+        employeeName: e.employeeName,
+        mobile: e.mobile,
+        email: e.email,
+        department: e.departmentDisplay || "",
+        subDepartment: e.subDepartmentDisplay || "",
+        designation: e.designation?.name || "",
+        superiorEmployee: formatEmployeeDisplayName(e.superiorEmployee),
+        sites: (e.sites || []).map((s) => formatSiteDisplayName(s)).join(", "),
+        subSites: e.subSiteDisplay || "",
+        status: e.isActive ? "Active" : "Inactive",
+      });
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=employees.xlsx"
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("Excel export error:", err);
+    res.status(500).json({ message: "Excel export failed" });
+  }
+};
