@@ -17,9 +17,13 @@ const {
 
 const POLL_SCOPE_TYPES = ["company", "site", "department"];
 const POLL_RESPONSE_TYPES = ["single_choice", "multiple_choice"];
-const POLL_STATUSES = ["active", "inactive"];
+const POLL_STATUSES = ["upcoming", "active", "expired", "inactive"];
+const POLL_STATUS_INPUTS = ["active", "inactive", "upcoming", "expired"];
 const POLL_ASSIGNMENT_STATUSES = ["not_answered", "submitted", "revoked"];
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
+const IST_OFFSET_MS = 330 * 60 * 1000;
+const DATE_INPUT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
+const TIME_INPUT_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeId = (value) => String(value?._id || value || "").trim();
@@ -61,18 +65,105 @@ const parseOptionalBoolean = (value, fallback = false) => {
   return fallback;
 };
 
-const parseDateValue = (value, fieldLabel) => {
+const padTwo = (value) => String(value).padStart(2, "0");
+
+const parseIndiaDatePart = (value, fieldLabel) => {
   const normalized = normalizeText(value);
   if (!normalized) {
     throw createHttpError(`${fieldLabel} is required`);
   }
 
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) {
+  const match = DATE_INPUT_PATTERN.exec(normalized);
+  if (!match) {
     throw createHttpError(`Select a valid ${fieldLabel.toLowerCase()}`);
   }
 
-  return parsed;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const checkDate = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    checkDate.getUTCFullYear() !== year ||
+    checkDate.getUTCMonth() !== month - 1 ||
+    checkDate.getUTCDate() !== day
+  ) {
+    throw createHttpError(`Select a valid ${fieldLabel.toLowerCase()}`);
+  }
+
+  return { year, month, day, value: `${year}-${padTwo(month)}-${padTwo(day)}` };
+};
+
+const parseIndiaTimePart = (value, fieldLabel) => {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    throw createHttpError(`${fieldLabel} is required`);
+  }
+
+  const match = TIME_INPUT_PATTERN.exec(normalized);
+  if (!match) {
+    throw createHttpError(`Select a valid ${fieldLabel.toLowerCase()}`);
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return { hour, minute, value: `${padTwo(hour)}:${padTwo(minute)}` };
+};
+
+const parseIndiaDateTime = ({ dateValue, timeValue, dateLabel, timeLabel }) => {
+  const datePart = parseIndiaDatePart(dateValue, dateLabel);
+  const timePart = parseIndiaTimePart(timeValue, timeLabel);
+  const utcMillis =
+    Date.UTC(
+      datePart.year,
+      datePart.month - 1,
+      datePart.day,
+      timePart.hour,
+      timePart.minute
+    ) - IST_OFFSET_MS;
+
+  const parsed = new Date(utcMillis);
+  if (Number.isNaN(parsed.getTime())) {
+    throw createHttpError(`Select a valid ${dateLabel.toLowerCase()} and ${timeLabel.toLowerCase()}`);
+  }
+
+  return {
+    date: datePart.value,
+    time: timePart.value,
+    dateTime: parsed,
+  };
+};
+
+const getIndiaDateTimeParts = (value) => {
+  if (!value) return { date: "", time: "" };
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return { date: "", time: "" };
+
+  const shifted = new Date(parsed.getTime() + IST_OFFSET_MS);
+  return {
+    date: `${shifted.getUTCFullYear()}-${padTwo(shifted.getUTCMonth() + 1)}-${padTwo(
+      shifted.getUTCDate()
+    )}`,
+    time: `${padTwo(shifted.getUTCHours())}:${padTwo(shifted.getUTCMinutes())}`,
+  };
+};
+
+const getDateTimeMillis = (value) => {
+  if (!value) return NaN;
+  const parsed = new Date(value);
+  const time = parsed.getTime();
+  return Number.isNaN(time) ? NaN : time;
+};
+
+const getEffectiveStartDateTime = (poll) => poll?.startDateTime || poll?.startDate || null;
+const getEffectiveEndDateTime = (poll) => poll?.endDateTime || poll?.endDate || null;
+const getStoredTimePart = (timeValue, dateTimeValue, fallbackDateValue) =>
+  normalizeText(timeValue) || getIndiaDateTimeParts(dateTimeValue || fallbackDateValue).time;
+
+const isPollEnabled = (poll) => {
+  if (!poll) return false;
+  if (poll.isEnabled === false) return false;
+  return normalizeText(poll.status).toLowerCase() !== "inactive";
 };
 
 const parseJsonArray = (value, fieldLabel) => {
@@ -122,29 +213,48 @@ const formatDateTime = (value) => {
   });
 };
 
-const formatDateOnly = (value) => {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "-";
-
-  return parsed.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
-};
-
 const getPollWindowState = (poll) => {
-  if (normalizeText(poll?.status).toLowerCase() !== "active") return "inactive";
+  if (!isPollEnabled(poll)) return "inactive";
 
   const now = Date.now();
-  const startAt = new Date(poll?.startDate || 0).getTime();
-  const endAt = new Date(poll?.endDate || 0).getTime();
+  const startAt = getDateTimeMillis(getEffectiveStartDateTime(poll));
+  const endAt = getDateTimeMillis(getEffectiveEndDateTime(poll));
 
   if (Number.isFinite(startAt) && now < startAt) return "upcoming";
-  if (Number.isFinite(endAt) && now > endAt) return "closed";
+  if (Number.isFinite(endAt) && now > endAt) return "expired";
   return "active";
+};
+
+const refreshPollLifecycleStatuses = async (polls = []) => {
+  const updates = [];
+  const refreshedRows = (Array.isArray(polls) ? polls : []).map((poll) => {
+    const nextStatus = getPollWindowState(poll);
+    const currentStatus = normalizeText(poll?.status).toLowerCase();
+
+    if (normalizeId(poll?._id) && currentStatus !== nextStatus) {
+      updates.push(
+        PollMaster.updateOne(
+          { _id: poll._id },
+          {
+            $set: {
+              status: nextStatus,
+            },
+          }
+        )
+      );
+    }
+
+    return {
+      ...poll,
+      status: nextStatus,
+    };
+  });
+
+  if (updates.length) {
+    await Promise.all(updates);
+  }
+
+  return refreshedRows;
 };
 
 const canSubmitPoll = (poll, assignment) => {
@@ -319,16 +429,38 @@ const buildPollPayload = ({ body = {}, scopedMasterData }) => {
   }
 
   const description = normalizeText(body?.description || body?.purpose);
-  const status = normalizeText(body?.status || "active").toLowerCase();
-  if (!POLL_STATUSES.includes(status)) {
+  const requestedStatus = normalizeText(body?.status || "active").toLowerCase();
+  if (requestedStatus && !POLL_STATUS_INPUTS.includes(requestedStatus)) {
     throw createHttpError("Select a valid poll status");
   }
 
-  const startDate = parseDateValue(body?.startDate, "Start date");
-  const endDate = parseDateValue(body?.endDate, "End date");
-  if (endDate.getTime() < startDate.getTime()) {
-    throw createHttpError("End date cannot be earlier than start date");
+  const startWindow = parseIndiaDateTime({
+    dateValue: body?.startDate,
+    timeValue: body?.startTime,
+    dateLabel: "Start date",
+    timeLabel: "Start time",
+  });
+  const endWindow = parseIndiaDateTime({
+    dateValue: body?.endDate,
+    timeValue: body?.endTime,
+    dateLabel: "End date",
+    timeLabel: "End time",
+  });
+
+  if (endWindow.dateTime.getTime() <= startWindow.dateTime.getTime()) {
+    throw createHttpError("End date time must be greater than start date time");
   }
+
+  const isEnabled =
+    body?.isEnabled !== undefined
+      ? parseOptionalBoolean(body?.isEnabled, true)
+      : requestedStatus !== "inactive";
+  const status = getPollWindowState({
+    isEnabled,
+    startDateTime: startWindow.dateTime,
+    endDateTime: endWindow.dateTime,
+    status: isEnabled ? "active" : "inactive",
+  });
 
   const scopeSelection = resolveSelectedScopeDocs({
     scopeType: body?.scopeType,
@@ -343,8 +475,13 @@ const buildPollPayload = ({ body = {}, scopedMasterData }) => {
     scopeIds: scopeSelection.scopeIds,
     questions: parsePollQuestions(body?.questions),
     allowResubmission: parseOptionalBoolean(body?.allowResubmission, false),
-    startDate,
-    endDate,
+    startDate: startWindow.dateTime,
+    startTime: startWindow.time,
+    endDate: endWindow.dateTime,
+    endTime: endWindow.time,
+    startDateTime: startWindow.dateTime,
+    endDateTime: endWindow.dateTime,
+    isEnabled,
     status,
   };
 };
@@ -406,15 +543,37 @@ const mapEmployeeScopeSummary = (employee = {}) => {
 
 const createAssignmentNotifications = async ({ poll, assignments = [] }) => {
   if (!assignments.length) return;
+  if (getPollWindowState(poll) !== "active") return;
+
+  const assignmentIds = uniqueIdList(assignments.map((assignment) => assignment?._id));
+  const existingNotifications = assignmentIds.length
+    ? await PollNotification.find(
+        {
+          assignment: { $in: assignmentIds.map((assignmentId) => toObjectId(assignmentId)) },
+          notificationType: "assigned",
+        },
+        "assignment"
+      ).lean()
+    : [];
+  const notifiedAssignmentIds = new Set(
+    existingNotifications.map((notification) => normalizeId(notification.assignment))
+  );
+  const notificationRows = assignments.filter(
+    (assignment) => !notifiedAssignmentIds.has(normalizeId(assignment?._id))
+  );
+
+  if (!notificationRows.length) return;
 
   await PollNotification.insertMany(
-    assignments.map((assignment) => ({
+    notificationRows.map((assignment) => ({
       poll: poll._id,
       assignment: assignment._id,
       employee: assignment.employee,
       notificationType: "assigned",
       title: `New Poll: ${poll.title}`,
-      message: `Your response is requested before ${formatDateOnly(poll.endDate)}.`,
+      message: `Your response is requested before ${formatDateTime(
+        getEffectiveEndDateTime(poll)
+      )}.`,
       routePath: `/polls/my/${assignment._id}`,
     }))
   );
@@ -509,6 +668,37 @@ const syncPollAssignments = async ({ poll, employeeIds = [] }) => {
   if (notifyAssignments.length) {
     await createAssignmentNotifications({ poll, assignments: notifyAssignments });
   }
+};
+
+const releaseActivePollNotifications = async ({ employeeId, pollId } = {}) => {
+  const query = { status: "not_answered" };
+  if (employeeId && isValidObjectId(employeeId)) query.employee = toObjectId(employeeId);
+  if (pollId && isValidObjectId(pollId)) query.poll = toObjectId(pollId);
+
+  const assignments = await PollAssignment.find(query).populate("poll").lean();
+  const activeAssignmentsByPollId = new Map();
+
+  assignments
+    .filter((assignment) => assignment.poll)
+    .filter((assignment) => getPollWindowState(assignment.poll) === "active")
+    .forEach((assignment) => {
+      const pollKey = normalizeId(assignment.poll);
+      const current = activeAssignmentsByPollId.get(pollKey) || {
+        poll: assignment.poll,
+        assignments: [],
+      };
+      current.assignments.push(assignment);
+      activeAssignmentsByPollId.set(pollKey, current);
+    });
+
+  await Promise.all(
+    Array.from(activeAssignmentsByPollId.values()).map((group) =>
+      createAssignmentNotifications({
+        poll: group.poll,
+        assignments: group.assignments,
+      })
+    )
+  );
 };
 
 const getSubmittedResponseCount = async (pollId) =>
@@ -676,6 +866,9 @@ const loadPollAssignmentCounts = async (pollIds = []) => {
 
 const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
   const scopeSummary = formatPollScopeSummary(poll, scopeLabelMap);
+  const windowState = getPollWindowState(poll);
+  const startDateTime = getEffectiveStartDateTime(poll);
+  const endDateTime = getEffectiveEndDateTime(poll);
 
   return {
     _id: poll._id,
@@ -684,13 +877,18 @@ const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
     scopeType: poll.scopeType,
     scopeSummary,
     startDate: poll.startDate,
+    startTime: getStoredTimePart(poll.startTime, poll.startDateTime, poll.startDate),
     endDate: poll.endDate,
-    status: poll.status,
+    endTime: getStoredTimePart(poll.endTime, poll.endDateTime, poll.endDate),
+    startDateTime,
+    endDateTime,
+    status: windowState,
+    isEnabled: isPollEnabled(poll),
     allowResubmission: Boolean(poll.allowResubmission),
     questionCount: Array.isArray(poll.questions) ? poll.questions.length : 0,
     createdByName: poll.createdByName || "",
     createdAt: poll.createdAt || null,
-    windowState: getPollWindowState(poll),
+    windowState,
     counts: counts || {
       total: 0,
       submitted: 0,
@@ -700,43 +898,61 @@ const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
   };
 };
 
-const mapPollDetailRow = ({ poll, scopeLabelMap }) => ({
-  _id: poll._id,
-  title: poll.title,
-  description: poll.description || "",
-  scopeType: poll.scopeType,
-  scopeIds: uniqueIdList(poll.scopeIds),
-  scopeSummary: formatPollScopeSummary(poll, scopeLabelMap),
-  startDate: poll.startDate,
-  endDate: poll.endDate,
-  status: poll.status,
-  allowResubmission: Boolean(poll.allowResubmission),
-  questions: (Array.isArray(poll.questions) ? poll.questions : []).map((question) => ({
-    _id: question._id,
-    questionText: question.questionText,
-    responseType: question.responseType,
-    options: (Array.isArray(question.options) ? question.options : []).map((option) => ({
-      _id: option._id,
-      text: option.text,
+const mapPollDetailRow = ({ poll, scopeLabelMap }) => {
+  const windowState = getPollWindowState(poll);
+  const startDateTime = getEffectiveStartDateTime(poll);
+  const endDateTime = getEffectiveEndDateTime(poll);
+
+  return {
+    _id: poll._id,
+    title: poll.title,
+    description: poll.description || "",
+    scopeType: poll.scopeType,
+    scopeIds: uniqueIdList(poll.scopeIds),
+    scopeSummary: formatPollScopeSummary(poll, scopeLabelMap),
+    startDate: poll.startDate,
+    startTime: getStoredTimePart(poll.startTime, poll.startDateTime, poll.startDate),
+    endDate: poll.endDate,
+    endTime: getStoredTimePart(poll.endTime, poll.endDateTime, poll.endDate),
+    startDateTime,
+    endDateTime,
+    status: windowState,
+    isEnabled: isPollEnabled(poll),
+    allowResubmission: Boolean(poll.allowResubmission),
+    questions: (Array.isArray(poll.questions) ? poll.questions : []).map((question) => ({
+      _id: question._id,
+      questionText: question.questionText,
+      responseType: question.responseType,
+      options: (Array.isArray(question.options) ? question.options : []).map((option) => ({
+        _id: option._id,
+        text: option.text,
+      })),
     })),
-  })),
-  createdByName: poll.createdByName || "",
-  createdAt: poll.createdAt || null,
-  updatedAt: poll.updatedAt || null,
-  windowState: getPollWindowState(poll),
-});
+    createdByName: poll.createdByName || "",
+    createdAt: poll.createdAt || null,
+    updatedAt: poll.updatedAt || null,
+    windowState,
+  };
+};
 
 const mapMyAssignmentRow = (assignment) => {
   const poll = assignment?.poll || {};
+  const windowState = getPollWindowState(poll);
+  const startDateTime = getEffectiveStartDateTime(poll);
+  const endDateTime = getEffectiveEndDateTime(poll);
   return {
     _id: assignment?._id,
     pollId: poll?._id || null,
     title: normalizeText(poll?.title),
     description: normalizeText(poll?.description),
     startDate: poll?.startDate || null,
+    startTime: getStoredTimePart(poll?.startTime, poll?.startDateTime, poll?.startDate),
     endDate: poll?.endDate || null,
-    pollStatus: normalizeText(poll?.status).toLowerCase() || "inactive",
-    windowState: getPollWindowState(poll),
+    endTime: getStoredTimePart(poll?.endTime, poll?.endDateTime, poll?.endDate),
+    startDateTime,
+    endDateTime,
+    pollStatus: windowState,
+    windowState,
     assignmentStatus: normalizeText(assignment?.status).toLowerCase() || "not_answered",
     submittedAt: assignment?.submittedAt || null,
     allowResubmission: Boolean(poll?.allowResubmission),
@@ -747,6 +963,9 @@ const mapMyAssignmentRow = (assignment) => {
 
 const mapMyAssignmentDetail = ({ assignment, response }) => {
   const poll = assignment?.poll || {};
+  const windowState = getPollWindowState(poll);
+  const startDateTime = getEffectiveStartDateTime(poll);
+  const endDateTime = getEffectiveEndDateTime(poll);
 
   return {
     _id: assignment?._id,
@@ -755,9 +974,14 @@ const mapMyAssignmentDetail = ({ assignment, response }) => {
       title: normalizeText(poll?.title),
       description: normalizeText(poll?.description),
       startDate: poll?.startDate || null,
+      startTime: getStoredTimePart(poll?.startTime, poll?.startDateTime, poll?.startDate),
       endDate: poll?.endDate || null,
-      status: normalizeText(poll?.status).toLowerCase() || "inactive",
-      windowState: getPollWindowState(poll),
+      endTime: getStoredTimePart(poll?.endTime, poll?.endDateTime, poll?.endDate),
+      startDateTime,
+      endDateTime,
+      status: windowState,
+      isEnabled: isPollEnabled(poll),
+      windowState,
       allowResubmission: Boolean(poll?.allowResubmission),
       questions: (Array.isArray(poll?.questions) ? poll.questions : []).map((question) => ({
         _id: question?._id,
@@ -934,6 +1158,7 @@ exports.getPolls = async (req, res) => {
     const scopeType = normalizeText(req.query?.scopeType).toLowerCase();
     let rows = await PollMaster.find({}).sort({ createdAt: -1 }).lean();
     rows = await filterVisiblePolls({ polls: rows, access: req.access || {}, user: req.user });
+    rows = await refreshPollLifecycleStatuses(rows);
 
     if (search) {
       const searchRegex = new RegExp(escapeRegex(search), "i");
@@ -943,7 +1168,7 @@ exports.getPolls = async (req, res) => {
     }
 
     if (status && POLL_STATUSES.includes(status)) {
-      rows = rows.filter((row) => normalizeText(row.status).toLowerCase() === status);
+      rows = rows.filter((row) => getPollWindowState(row) === status);
     }
 
     if (scopeType && POLL_SCOPE_TYPES.includes(scopeType)) {
@@ -1142,21 +1367,33 @@ exports.togglePollStatus = async (req, res) => {
       return res.status(404).json({ message: "Poll not found" });
     }
 
-    const nextStatus = normalizeText(poll.status).toLowerCase() === "active" ? "inactive" : "active";
+    const nextIsEnabled = !isPollEnabled(poll);
+    const nextStatus = getPollWindowState({
+      ...poll,
+      isEnabled: nextIsEnabled,
+      status: nextIsEnabled ? "active" : "inactive",
+    });
     const updated = await PollMaster.findByIdAndUpdate(
       poll._id,
       {
         $set: {
           status: nextStatus,
+          isEnabled: nextIsEnabled,
           ...buildUpdaterSnapshot(req.user),
         },
       },
       { new: true }
     ).lean();
 
+    if (nextStatus === "active") {
+      await releaseActivePollNotifications({ pollId: poll._id });
+    }
+
     return res.json({
-      message: `Poll ${nextStatus === "active" ? "activated" : "deactivated"} successfully`,
+      message: `Poll ${nextIsEnabled ? "activated" : "deactivated"} successfully`,
       status: updated?.status || nextStatus,
+      windowState: getPollWindowState(updated || { ...poll, isEnabled: nextIsEnabled }),
+      isEnabled: updated?.isEnabled ?? nextIsEnabled,
     });
   } catch (err) {
     console.error("TOGGLE POLL STATUS ERROR:", err);
@@ -1172,6 +1409,7 @@ exports.getMyAssignedPolls = async (req, res) => {
 
     const search = normalizeText(req.query?.search);
     const status = normalizeText(req.query?.status).toLowerCase();
+    await releaseActivePollNotifications({ employeeId: req.user.id });
     let assignments = await PollAssignment.find({
       employee: req.user.id,
       status: { $ne: "revoked" },
@@ -1207,6 +1445,7 @@ exports.getMyPollByAssignment = async (req, res) => {
       return res.status(403).json({ message: "Only employees can open assigned polls" });
     }
 
+    await releaseActivePollNotifications({ employeeId: req.user.id });
     const assignment = await PollAssignment.findOne({
       _id: req.params.assignmentId,
       employee: req.user.id,
@@ -1540,14 +1779,24 @@ exports.getPollReport = async (req, res) => {
       ).values()
     ).sort((left, right) => left.label.localeCompare(right.label));
 
+    const pollWindowState = getPollWindowState(poll);
+    const startDateTime = getEffectiveStartDateTime(poll);
+    const endDateTime = getEffectiveEndDateTime(poll);
+
     return res.json({
       poll: {
         _id: poll._id,
         title: poll.title,
         description: poll.description || "",
         startDate: poll.startDate,
+        startTime: getStoredTimePart(poll.startTime, poll.startDateTime, poll.startDate),
         endDate: poll.endDate,
-        status: poll.status,
+        endTime: getStoredTimePart(poll.endTime, poll.endDateTime, poll.endDate),
+        startDateTime,
+        endDateTime,
+        status: pollWindowState,
+        windowState: pollWindowState,
+        isEnabled: isPollEnabled(poll),
         scopeType: poll.scopeType,
       },
       summary: {
@@ -1580,6 +1829,7 @@ exports.getMyPollNotifications = async (req, res) => {
       return res.status(403).json({ message: "Only employees can view poll notifications" });
     }
 
+    await releaseActivePollNotifications({ employeeId: req.user.id });
     const unreadRows = await PollNotification.find({
       employee: req.user.id,
       readAt: null,
@@ -1603,7 +1853,7 @@ exports.getMyPollNotifications = async (req, res) => {
       .filter((assignment) => !unreadAssignmentIds.has(normalizeId(assignment._id)))
       .filter((assignment) => getPollWindowState(assignment.poll) === "active")
       .filter((assignment) => {
-        const endAt = new Date(assignment.poll.endDate || 0).getTime();
+        const endAt = getDateTimeMillis(getEffectiveEndDateTime(assignment.poll));
         return Number.isFinite(endAt) && endAt >= now && endAt - now <= REMINDER_WINDOW_MS;
       })
       .slice(0, 10)
@@ -1611,9 +1861,9 @@ exports.getMyPollNotifications = async (req, res) => {
         _id: `reminder-${assignment._id}`,
         assignmentId: normalizeId(assignment._id),
         title: normalizeText(assignment.poll.title),
-        message: `Response due by ${formatDateTime(assignment.poll.endDate)}.`,
+        message: `Response due by ${formatDateTime(getEffectiveEndDateTime(assignment.poll))}.`,
         routePath: `/polls/my/${assignment._id}`,
-        createdAt: assignment.poll.endDate,
+        createdAt: getEffectiveEndDateTime(assignment.poll),
       }));
 
     return res.json({

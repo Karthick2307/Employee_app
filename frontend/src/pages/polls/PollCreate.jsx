@@ -9,12 +9,54 @@ const buildEmptyQuestion = () => ({
   options: [{ text: "" }, { text: "" }],
 });
 
+const INDIA_TIME_ZONE = "Asia/Kolkata";
+const TIME_INPUT_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const getIndiaDateTimeParts = (value) => {
+  if (!value) return { date: "", time: "" };
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return { date: "", time: "" };
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: INDIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+    .formatToParts(parsed)
+    .reduce((result, part) => {
+      result[part.type] = part.value;
+      return result;
+    }, {});
+
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
+};
+
 const normalizeDateInput = (value) => {
   if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return getIndiaDateTimeParts(value).date;
 };
+
+const normalizeTimeInput = (value) => {
+  if (!value) return "";
+  const normalized = String(value || "").trim();
+  if (TIME_INPUT_PATTERN.test(normalized)) return normalized;
+  return getIndiaDateTimeParts(value).time;
+};
+
+const buildDateTimeKey = (dateValue, timeValue) =>
+  dateValue && timeValue ? `${dateValue}T${timeValue}` : "";
+
+const getManualStatus = (poll = {}) =>
+  poll.isEnabled === false || String(poll.status || "").toLowerCase() === "inactive"
+    ? "inactive"
+    : "active";
 
 export default function PollCreate() {
   const navigate = useNavigate();
@@ -23,6 +65,7 @@ export default function PollCreate() {
 
   const [loading, setLoading] = useState(isEditMode);
   const [saving, setSaving] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewRows, setPreviewRows] = useState([]);
   const [previewCount, setPreviewCount] = useState(0);
@@ -37,7 +80,9 @@ export default function PollCreate() {
     scopeType: "company",
     scopeIds: [],
     startDate: "",
+    startTime: "",
     endDate: "",
+    endTime: "",
     status: "active",
     allowResubmission: false,
     questions: [buildEmptyQuestion()],
@@ -60,15 +105,19 @@ export default function PollCreate() {
         if (isEditMode) {
           const pollResponse = await api.get(`/polls/${id}`);
           const poll = pollResponse.data || {};
+          const startDateSource = poll.startDateTime || poll.startDate;
+          const endDateSource = poll.endDateTime || poll.endDate;
 
           setForm({
             title: poll.title || "",
             description: poll.description || "",
             scopeType: poll.scopeType || "company",
             scopeIds: Array.isArray(poll.scopeIds) ? poll.scopeIds : [],
-            startDate: normalizeDateInput(poll.startDate),
-            endDate: normalizeDateInput(poll.endDate),
-            status: poll.status || "active",
+            startDate: normalizeDateInput(startDateSource),
+            startTime: poll.startTime || (poll.startDateTime ? normalizeTimeInput(startDateSource) : "00:00"),
+            endDate: normalizeDateInput(endDateSource),
+            endTime: poll.endTime || (poll.endDateTime ? normalizeTimeInput(endDateSource) : "23:59"),
+            status: getManualStatus(poll),
             allowResubmission: Boolean(poll.allowResubmission),
             questions:
               Array.isArray(poll.questions) && poll.questions.length
@@ -213,18 +262,30 @@ export default function PollCreate() {
   };
 
   const savePoll = async () => {
+    setValidationMessage("");
+
     if (!form.title.trim()) {
-      alert("Enter poll title");
+      setValidationMessage("Enter poll title");
       return;
     }
 
     if (!form.scopeIds.length) {
-      alert("Select at least one scope item");
+      setValidationMessage("Select at least one scope item");
       return;
     }
 
-    if (!form.startDate || !form.endDate) {
-      alert("Select start and end dates");
+    if (!form.startDate || !form.startTime) {
+      setValidationMessage("Start date and start time are required");
+      return;
+    }
+
+    if (!form.endDate || !form.endTime) {
+      setValidationMessage("End date and end time are required");
+      return;
+    }
+
+    if (buildDateTimeKey(form.endDate, form.endTime) <= buildDateTimeKey(form.startDate, form.startTime)) {
+      setValidationMessage("End date time must be greater than start date time");
       return;
     }
 
@@ -234,8 +295,11 @@ export default function PollCreate() {
       scopeType: form.scopeType,
       scopeIds: form.scopeIds,
       startDate: form.startDate,
+      startTime: form.startTime,
       endDate: form.endDate,
+      endTime: form.endTime,
       status: form.status,
+      isEnabled: form.status !== "inactive",
       allowResubmission: form.allowResubmission,
       questions: form.questions,
     };
@@ -285,7 +349,13 @@ export default function PollCreate() {
 
       <div className="soft-card mb-4">
         <div className="row g-3">
-          <div className="col-lg-6">
+          {validationMessage ? (
+            <div className="col-12">
+              <div className="alert alert-danger py-2 mb-0">{validationMessage}</div>
+            </div>
+          ) : null}
+
+          <div className="col-lg-4">
             <label className="form-label fw-semibold">Poll Title</label>
             <input
               className="form-control"
@@ -297,7 +367,7 @@ export default function PollCreate() {
             />
           </div>
 
-          <div className="col-lg-3">
+          <div className="col-lg-2">
             <label className="form-label fw-semibold">Start Date</label>
             <input
               type="date"
@@ -309,7 +379,19 @@ export default function PollCreate() {
             />
           </div>
 
-          <div className="col-lg-3">
+          <div className="col-lg-2">
+            <label className="form-label fw-semibold">Start Time</label>
+            <input
+              type="time"
+              className="form-control"
+              value={form.startTime}
+              onChange={(event) =>
+                setForm((currentForm) => ({ ...currentForm, startTime: event.target.value }))
+              }
+            />
+          </div>
+
+          <div className="col-lg-2">
             <label className="form-label fw-semibold">End Date</label>
             <input
               type="date"
@@ -317,6 +399,18 @@ export default function PollCreate() {
               value={form.endDate}
               onChange={(event) =>
                 setForm((currentForm) => ({ ...currentForm, endDate: event.target.value }))
+              }
+            />
+          </div>
+
+          <div className="col-lg-2">
+            <label className="form-label fw-semibold">End Time</label>
+            <input
+              type="time"
+              className="form-control"
+              value={form.endTime}
+              onChange={(event) =>
+                setForm((currentForm) => ({ ...currentForm, endTime: event.target.value }))
               }
             />
           </div>

@@ -3133,13 +3133,36 @@ exports.updateChecklist = async (req, res) => {
 
 exports.toggleChecklistStatus = async (req, res) => {
   try {
-    const checklist = await Checklist.findById(req.params.id);
+    if (!hasChecklistMasterAccess(req.user)) {
+      return res.status(403).json({ message: "Checklist Master access is required" });
+    }
+
+    const restrictedSiteId = getRestrictedChecklistSiteId(req.user);
+    const checklist = await Checklist.findOne(
+      mergeQueryFilters(
+        { _id: req.params.id },
+        await buildChecklistMasterScopeFilter(req.access || {}),
+        restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
+      )
+    );
 
     if (!checklist) {
       return res.status(404).json({ message: "Checklist master not found" });
     }
 
-    checklist.status = !checklist.status;
+    const requestedStatus = normalizeText(req.body?.status).toLowerCase();
+    const nextStatus =
+      typeof req.body?.isActive === "boolean"
+        ? req.body.isActive
+        : requestedStatus === "active"
+        ? true
+        : requestedStatus === "inactive"
+        ? false
+        : !checklist.status;
+
+    checklist.status = nextStatus;
+    checklist.isActive = nextStatus;
+    checklist.updatedBy = req.user?.id || checklist.updatedBy || null;
     await checklist.save();
 
     if (checklist.status) {
@@ -3149,6 +3172,8 @@ exports.toggleChecklistStatus = async (req, res) => {
     return res.json({
       success: true,
       status: checklist.status,
+      isActive: checklist.isActive,
+      statusLabel: checklist.status ? "Active" : "Inactive",
     });
   } catch (err) {
     console.error("TOGGLE CHECKLIST STATUS ERROR:", err);
@@ -3184,8 +3209,10 @@ exports.deleteChecklist = async (req, res) => {
     }
 
     checklist.status = false;
+    checklist.isActive = false;
     checklist.isDeleted = true;
     checklist.deletedAt = new Date();
+    checklist.updatedBy = req.user?.id || checklist.updatedBy || null;
     await checklist.save();
 
     return res.json({ success: true });
@@ -3256,8 +3283,10 @@ exports.bulkDeleteChecklists = async (req, res) => {
       {
         $set: {
           status: false,
+          isActive: false,
           isDeleted: true,
           deletedAt: new Date(),
+          updatedBy: req.user?.id || null,
         },
       }
     );

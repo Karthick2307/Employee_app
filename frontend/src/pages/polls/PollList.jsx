@@ -4,7 +4,7 @@ import api from "../../api/axios";
 import { usePermissions } from "../../context/usePermissions";
 import {
   formatPollAssignmentStatusLabel,
-  formatPollDate,
+  formatPollDateTime,
   formatPollScopeTypeLabel,
   formatPollWindowStateLabel,
   getPollAssignmentBadgeClass,
@@ -58,19 +58,19 @@ export default function PollList() {
     try {
       const response = await api.patch(`/polls/${pollId}/status`);
       const nextStatus = response.data?.status || "";
+      const nextWindowState = response.data?.windowState || nextStatus;
 
       setRows((currentRows) =>
         currentRows.map((row) =>
           row._id === pollId
             ? {
                 ...row,
-                status: nextStatus,
-                windowState:
-                  nextStatus === "active" && row.windowState === "inactive"
-                    ? "upcoming"
-                    : nextStatus === "inactive"
-                    ? "inactive"
-                    : row.windowState,
+                status: nextStatus || row.status,
+                windowState: nextWindowState || row.windowState,
+                isEnabled:
+                  typeof response.data?.isEnabled === "boolean"
+                    ? response.data.isEnabled
+                    : row.isEnabled,
               }
             : row
         )
@@ -148,7 +148,9 @@ export default function PollList() {
               <option value="">All</option>
               {canManagePolls ? (
                 <>
+                  <option value="upcoming">Upcoming</option>
                   <option value="active">Active</option>
+                  <option value="expired">Expired</option>
                   <option value="inactive">Inactive</option>
                 </>
               ) : (
@@ -229,29 +231,35 @@ export default function PollList() {
                       </td>
                     ) : null}
                     <td>
-                      <div>{formatPollDate(row.startDate)}</div>
-                      <div className="small text-muted">to {formatPollDate(row.endDate)}</div>
+                      <div>{formatPollDateTime(row.startDateTime || row.startDate)}</div>
+                      <div className="small text-muted">
+                        to {formatPollDateTime(row.endDateTime || row.endDate)}
+                      </div>
                     </td>
                     <td>
                       <div className="d-flex flex-wrap gap-2">
                         <span className={`badge ${getPollWindowBadgeClass(row.windowState)}`}>
                           {formatPollWindowStateLabel(row.windowState)}
                         </span>
-                        <span
-                          className={`badge ${
-                            canManagePolls
-                              ? getPollWindowBadgeClass(row.status)
-                              : getPollAssignmentBadgeClass(row.assignmentStatus)
-                          }`}
-                        >
-                          {canManagePolls
-                            ? formatPollWindowStateLabel(row.status)
-                            : formatPollAssignmentStatusLabel(row.assignmentStatus)}
-                        </span>
+                        {canManagePolls ? (
+                          <span
+                            className={`badge ${
+                              row.isEnabled === false
+                                ? getPollWindowBadgeClass("inactive")
+                                : "bg-light text-dark border"
+                            }`}
+                          >
+                            {row.isEnabled === false ? "Inactive" : "Enabled"}
+                          </span>
+                        ) : (
+                          <span className={`badge ${getPollAssignmentBadgeClass(row.assignmentStatus)}`}>
+                            {formatPollAssignmentStatusLabel(row.assignmentStatus)}
+                          </span>
+                        )}
                       </div>
                       {!canManagePolls && row.submittedAt ? (
                         <div className="small text-muted mt-1">
-                          Submitted: {formatPollDate(row.submittedAt)}
+                          Submitted: {formatPollDateTime(row.submittedAt)}
                         </div>
                       ) : null}
                     </td>
@@ -280,10 +288,12 @@ export default function PollList() {
                             {canTogglePollStatus ? (
                               <button
                                 type="button"
-                                className="btn btn-sm btn-outline-secondary"
+                                className={`btn btn-sm ${
+                                  row.isEnabled === false ? "btn-outline-success" : "btn-outline-secondary"
+                                }`}
                                 onClick={() => togglePollStatus(row._id)}
                               >
-                                {row.status === "active" ? "Deactivate" : "Activate"}
+                                {row.isEnabled === false ? "Activate" : "Deactivate"}
                               </button>
                             ) : null}
                             {canDeletePolls ? (

@@ -203,6 +203,13 @@ const checklistSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    isActive: {
+      type: Boolean,
+      default: function defaultChecklistIsActive() {
+        return this.status !== false;
+      },
+      index: true,
+    },
     isDeleted: {
       type: Boolean,
       default: false,
@@ -213,6 +220,11 @@ const checklistSchema = new mongoose.Schema(
       default: null,
     },
     createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
