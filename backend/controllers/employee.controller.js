@@ -574,7 +574,8 @@ exports.toggleEmployeeStatus = async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    emp.isActive = !emp.isActive;
+    emp.isActive =
+      typeof req.body?.isActive === "boolean" ? req.body.isActive : !emp.isActive;
     await emp.save();
 
     res.json({ success: true, isActive: emp.isActive });

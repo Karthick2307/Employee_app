@@ -111,6 +111,10 @@ export default function EmployeeList() {
   const [loading, setLoading] = useState(false);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [statusConfirmation, setStatusConfirmation] = useState(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [statusError, setStatusError] = useState("");
 
   const [params] = useSearchParams();
   const department = params.get("department");
@@ -246,14 +250,36 @@ export default function EmployeeList() {
     }
   };
 
-  const toggleStatus = async (id, currentStatus) => {
+  const openStatusConfirmation = (employee) => {
+    setStatusMessage("");
+    setStatusError("");
+    setStatusConfirmation(employee);
+  };
+
+  const closeStatusConfirmation = () => {
+    if (statusSaving) return;
+    setStatusConfirmation(null);
+    setStatusError("");
+  };
+
+  const confirmStatusChange = async () => {
+    if (!statusConfirmation) return;
+
+    const nextIsActive = !statusConfirmation.isActive;
+    setStatusSaving(true);
+    setStatusError("");
+
     try {
-      await api.patch(`/employees/${id}/status`, {
-        isActive: !currentStatus,
+      await api.patch(`/employees/${statusConfirmation._id}/status`, {
+        isActive: nextIsActive,
       });
-      loadEmployees();
-    } catch {
-      alert("Status update failed");
+      await loadEmployees();
+      setStatusConfirmation(null);
+      setStatusMessage("Employee status updated successfully");
+    } catch (err) {
+      setStatusError(err.response?.data?.message || "Status update failed");
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -376,6 +402,12 @@ export default function EmployeeList() {
             </div>
           ) : null}
         </div>
+
+        {statusMessage ? (
+          <div className="alert alert-success py-2 mt-3 mb-0" role="status">
+            {statusMessage}
+          </div>
+        ) : null}
 
         <div className="employee-directory-stats mt-4">
           {stats.map((stat) => (
@@ -663,10 +695,11 @@ export default function EmployeeList() {
 
                             {canToggleEmployeeStatus ? (
                               <button
+                                type="button"
                                 className={`btn btn-sm app-icon-action-btn ${
                                   employee.isActive ? "btn-secondary" : "btn-success"
                                 }`}
-                                onClick={() => toggleStatus(employee._id, employee.isActive)}
+                                onClick={() => openStatusConfirmation(employee)}
                                 title={`${
                                   employee.isActive ? "Deactivate" : "Activate"
                                 } ${employee.employeeName || employee.employeeCode || "employee"}`}
@@ -697,6 +730,98 @@ export default function EmployeeList() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {statusConfirmation ? (
+        <EmployeeStatusConfirmationModal
+          employee={statusConfirmation}
+          saving={statusSaving}
+          error={statusError}
+          onCancel={closeStatusConfirmation}
+          onConfirm={confirmStatusChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function EmployeeStatusConfirmationModal({ employee, saving, error, onCancel, onConfirm }) {
+  const isDeactivation = employee.isActive;
+  const employeeLabel = employee.employeeName || employee.employeeCode || "this employee";
+
+  return (
+    <div
+      className="modal fade show d-block app-modal-overlay"
+      tabIndex="-1"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="employee-status-confirmation-title"
+    >
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content">
+          <div className="modal-header">
+            <div>
+              <h5 className="modal-title mb-1" id="employee-status-confirmation-title">
+                {isDeactivation
+                  ? "Are you sure you want to deactivate this employee?"
+                  : "Do you want to activate this employee?"}
+              </h5>
+              <div className="text-muted small">{employeeLabel}</div>
+            </div>
+            <button
+              type="button"
+              className="btn-close"
+              aria-label="Close"
+              onClick={onCancel}
+              disabled={saving}
+            />
+          </div>
+          <div className="modal-body">
+            <div
+              className={`alert ${
+                isDeactivation ? "alert-warning" : "alert-info"
+              } d-flex gap-3 align-items-start mb-0`}
+              role="alert"
+            >
+              <span className="fs-4 lh-1" aria-hidden="true">
+                ⚠️
+              </span>
+              <div>
+                {isDeactivation
+                  ? "This employee will not be able to login, access tasks, or receive assignments."
+                  : "This employee will regain access to the system."}
+              </div>
+            </div>
+
+            {error ? (
+              <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">
+                {error}
+              </div>
+            ) : null}
+          </div>
+          <div className="modal-footer">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={onCancel}
+              disabled={saving}
+            >
+              No, Cancel
+            </button>
+            <button
+              type="button"
+              className={`btn ${isDeactivation ? "btn-danger" : "btn-success"}`}
+              onClick={onConfirm}
+              disabled={saving}
+            >
+              {saving
+                ? "Updating..."
+                : isDeactivation
+                ? "Yes, Deactivate"
+                : "Yes, Activate"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
