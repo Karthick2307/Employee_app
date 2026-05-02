@@ -12,6 +12,7 @@ import {
   formatCurrentApproverLabel,
   formatDateTime,
   formatEmployeeLabel,
+  formatMarkValue,
   formatPriorityLabel,
   formatScheduleLabel,
   formatTaskFinalMarkLabel,
@@ -361,19 +362,43 @@ export default function ChecklistList() {
       });
 
       const createdCount = Number(response.data?.createdCount || 0);
+      const skippedRows = Array.isArray(response.data?.skippedRows)
+        ? response.data.skippedRows
+        : [];
+      const failedRows = Array.isArray(response.data?.failedRows)
+        ? response.data.failedRows
+        : Array.isArray(response.data?.failures)
+        ? response.data.failures
+        : [];
       const failedCount = Number(response.data?.failedCount || 0);
-      const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
-      const previewFailures = failures
-        .slice(0, 5)
-        .map((failure) => `Row ${failure.rowNumber}: ${failure.message}`)
+      const skippedCount = Number(response.data?.skippedCount ?? skippedRows.length);
+      const skippedDetails = skippedRows
+        .map((row) => {
+          const checklistNumber = String(row.checklistNumber || "").trim();
+          return checklistNumber
+            ? `Row ${row.rowNumber}: Checklist "${checklistNumber}" already exists`
+            : `Row ${row.rowNumber}: ${row.message || "Checklist already exists"}`;
+        })
+        .join("\n");
+      const failedDetails = failedRows
+        .map((row) => `Row ${row.rowNumber}: ${row.message}`)
         .join("\n");
 
       alert(
         [
           `Import completed.`,
+          "",
           `${createdCount} checklist master${createdCount === 1 ? "" : "s"} created.`,
-          `${failedCount} row${failedCount === 1 ? "" : "s"} failed.`,
-          previewFailures ? `\n${previewFailures}` : "",
+          "",
+          "Summary:",
+          `• ${skippedCount} row${skippedCount === 1 ? "" : "s"} skipped (already exist)`,
+          `• ${failedCount} row${failedCount === 1 ? "" : "s"} failed due to errors`,
+          skippedDetails ? `\nSkipped rows:\n${skippedDetails}` : "",
+          failedDetails ? `\nFailed rows:\n${failedDetails}` : "",
+          "",
+          "Tip:",
+          "• Remove duplicate checklist numbers before importing",
+          "• Ensure Assigned Site and Employee mapping is correct",
         ].join("\n")
       );
 
@@ -641,6 +666,9 @@ function AdminChecklistMasterList({
               <th>Checklist Number</th>
               <th>Name</th>
               <th>Scoring</th>
+              <th>Base Mark</th>
+              <th>Delay Penalty / Day</th>
+              <th>Advance Bonus / Day</th>
               <th>Source Site</th>
               <th>Employee</th>
               <th>Priority</th>
@@ -657,7 +685,7 @@ function AdminChecklistMasterList({
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={canDelete ? "16" : "15"} className="text-center">
+                <td colSpan={canDelete ? "19" : "18"} className="text-center">
                   Loading checklist masters...
                 </td>
               </tr>
@@ -665,7 +693,7 @@ function AdminChecklistMasterList({
 
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={canDelete ? "16" : "15"} className="text-center">
+                <td colSpan={canDelete ? "19" : "18"} className="text-center">
                   No checklist masters found
                 </td>
               </tr>
@@ -690,6 +718,9 @@ function AdminChecklistMasterList({
                   <td>{row.checklistNumber}</td>
                   <td className="fw-semibold">{row.checklistName}</td>
                   <td>{formatChecklistScoreLabel(row)}</td>
+                  <td>{row.enableMark ? formatMarkValue(row.baseMark) : "-"}</td>
+                  <td>{row.enableMark ? formatMarkValue(row.delayPenaltyPerDay) : "-"}</td>
+                  <td>{row.enableMark ? formatMarkValue(row.advanceBonusPerDay) : "-"}</td>
                   <td>{getChecklistSiteName(row.checklistSourceSite) || "-"}</td>
                   <td>{formatEmployeeLabel(row.assignedToEmployee)}</td>
                   <td>
@@ -707,7 +738,11 @@ function AdminChecklistMasterList({
                     <div className="small text-muted">{row.endTime || "-"}</div>
                   </td>
                   <td>{formatDateTime(row.nextOccurrenceAt)}</td>
-                  <td>{formatApprovalLabel(row)}</td>
+                  <td>
+                    {String(row.approvalHierarchy || "").toLowerCase() === "custom"
+                      ? formatApprovalLabel(row)
+                      : "Default"}
+                  </td>
                   <td>
                     <div>{formatChecklistDependencyLabel(row)}</div>
                     {row.isDependentTask ? (
