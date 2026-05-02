@@ -9,7 +9,6 @@ const buildEmptyQuestion = () => ({
   options: [{ text: "" }, { text: "" }],
 });
 
-<<<<<<< HEAD
 const INDIA_TIME_ZONE = "Asia/Kolkata";
 const TIME_INPUT_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -59,15 +58,6 @@ const getManualStatus = (poll = {}) =>
     ? "inactive"
     : "active";
 
-=======
-const normalizeDateInput = (value) => {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
-};
-
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 export default function PollCreate() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -75,10 +65,7 @@ export default function PollCreate() {
 
   const [loading, setLoading] = useState(isEditMode);
   const [saving, setSaving] = useState(false);
-<<<<<<< HEAD
   const [validationMessage, setValidationMessage] = useState("");
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewRows, setPreviewRows] = useState([]);
   const [previewCount, setPreviewCount] = useState(0);
@@ -93,13 +80,9 @@ export default function PollCreate() {
     scopeType: "company",
     scopeIds: [],
     startDate: "",
-<<<<<<< HEAD
     startTime: "",
     endDate: "",
     endTime: "",
-=======
-    endDate: "",
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     status: "active",
     allowResubmission: false,
     questions: [buildEmptyQuestion()],
@@ -122,28 +105,19 @@ export default function PollCreate() {
         if (isEditMode) {
           const pollResponse = await api.get(`/polls/${id}`);
           const poll = pollResponse.data || {};
-<<<<<<< HEAD
           const startDateSource = poll.startDateTime || poll.startDate;
           const endDateSource = poll.endDateTime || poll.endDate;
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
           setForm({
             title: poll.title || "",
             description: poll.description || "",
             scopeType: poll.scopeType || "company",
             scopeIds: Array.isArray(poll.scopeIds) ? poll.scopeIds : [],
-<<<<<<< HEAD
             startDate: normalizeDateInput(startDateSource),
             startTime: poll.startTime || (poll.startDateTime ? normalizeTimeInput(startDateSource) : "00:00"),
             endDate: normalizeDateInput(endDateSource),
             endTime: poll.endTime || (poll.endDateTime ? normalizeTimeInput(endDateSource) : "23:59"),
             status: getManualStatus(poll),
-=======
-            startDate: normalizeDateInput(poll.startDate),
-            endDate: normalizeDateInput(poll.endDate),
-            status: poll.status || "active",
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
             allowResubmission: Boolean(poll.allowResubmission),
             questions:
               Array.isArray(poll.questions) && poll.questions.length
@@ -288,20 +262,14 @@ export default function PollCreate() {
   };
 
   const savePoll = async () => {
-<<<<<<< HEAD
     setValidationMessage("");
 
     if (!form.title.trim()) {
       setValidationMessage("Enter poll title");
-=======
-    if (!form.title.trim()) {
-      alert("Enter poll title");
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       return;
     }
 
     if (!form.scopeIds.length) {
-<<<<<<< HEAD
       setValidationMessage("Select at least one scope item");
       return;
     }
@@ -318,14 +286,6 @@ export default function PollCreate() {
 
     if (buildDateTimeKey(form.endDate, form.endTime) <= buildDateTimeKey(form.startDate, form.startTime)) {
       setValidationMessage("End date time must be greater than start date time");
-=======
-      alert("Select at least one scope item");
-      return;
-    }
-
-    if (!form.startDate || !form.endDate) {
-      alert("Select start and end dates");
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       return;
     }
 
@@ -335,16 +295,11 @@ export default function PollCreate() {
       scopeType: form.scopeType,
       scopeIds: form.scopeIds,
       startDate: form.startDate,
-<<<<<<< HEAD
       startTime: form.startTime,
       endDate: form.endDate,
       endTime: form.endTime,
       status: form.status,
       isEnabled: form.status !== "inactive",
-=======
-      endDate: form.endDate,
-      status: form.status,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       allowResubmission: form.allowResubmission,
       questions: form.questions,
     };
@@ -394,7 +349,6 @@ export default function PollCreate() {
 
       <div className="soft-card mb-4">
         <div className="row g-3">
-<<<<<<< HEAD
           {validationMessage ? (
             <div className="col-12">
               <div className="alert alert-danger py-2 mb-0">{validationMessage}</div>
@@ -402,9 +356,6 @@ export default function PollCreate() {
           ) : null}
 
           <div className="col-lg-4">
-=======
-          <div className="col-lg-6">
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
             <label className="form-label fw-semibold">Poll Title</label>
             <input
               className="form-control"
@@ -416,11 +367,7 @@ export default function PollCreate() {
             />
           </div>
 
-<<<<<<< HEAD
           <div className="col-lg-2">
-=======
-          <div className="col-lg-3">
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
             <label className="form-label fw-semibold">Start Date</label>
             <input
               type="date"
@@ -432,7 +379,6 @@ export default function PollCreate() {
             />
           </div>
 
-<<<<<<< HEAD
           <div className="col-lg-2">
             <label className="form-label fw-semibold">Start Time</label>
             <input
@@ -446,9 +392,6 @@ export default function PollCreate() {
           </div>
 
           <div className="col-lg-2">
-=======
-          <div className="col-lg-3">
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
             <label className="form-label fw-semibold">End Date</label>
             <input
               type="date"
@@ -460,7 +403,6 @@ export default function PollCreate() {
             />
           </div>
 
-<<<<<<< HEAD
           <div className="col-lg-2">
             <label className="form-label fw-semibold">End Time</label>
             <input
@@ -473,8 +415,6 @@ export default function PollCreate() {
             />
           </div>
 
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           <div className="col-12">
             <label className="form-label fw-semibold">Description / Purpose</label>
             <textarea

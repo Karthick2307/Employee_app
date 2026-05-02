@@ -17,7 +17,6 @@ const {
 
 const POLL_SCOPE_TYPES = ["company", "site", "department"];
 const POLL_RESPONSE_TYPES = ["single_choice", "multiple_choice"];
-<<<<<<< HEAD
 const POLL_STATUSES = ["upcoming", "active", "expired", "inactive"];
 const POLL_STATUS_INPUTS = ["active", "inactive", "upcoming", "expired"];
 const POLL_ASSIGNMENT_STATUSES = ["not_answered", "submitted", "revoked"];
@@ -25,11 +24,6 @@ const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IST_OFFSET_MS = 330 * 60 * 1000;
 const DATE_INPUT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
 const TIME_INPUT_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
-=======
-const POLL_STATUSES = ["active", "inactive"];
-const POLL_ASSIGNMENT_STATUSES = ["not_answered", "submitted", "revoked"];
-const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeId = (value) => String(value?._id || value || "").trim();
@@ -71,19 +65,14 @@ const parseOptionalBoolean = (value, fallback = false) => {
   return fallback;
 };
 
-<<<<<<< HEAD
 const padTwo = (value) => String(value).padStart(2, "0");
 
 const parseIndiaDatePart = (value, fieldLabel) => {
-=======
-const parseDateValue = (value, fieldLabel) => {
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   const normalized = normalizeText(value);
   if (!normalized) {
     throw createHttpError(`${fieldLabel} is required`);
   }
 
-<<<<<<< HEAD
   const match = DATE_INPUT_PATTERN.exec(normalized);
   if (!match) {
     throw createHttpError(`Select a valid ${fieldLabel.toLowerCase()}`);
@@ -175,14 +164,6 @@ const isPollEnabled = (poll) => {
   if (!poll) return false;
   if (poll.isEnabled === false) return false;
   return normalizeText(poll.status).toLowerCase() !== "inactive";
-=======
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) {
-    throw createHttpError(`Select a valid ${fieldLabel.toLowerCase()}`);
-  }
-
-  return parsed;
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 };
 
 const parseJsonArray = (value, fieldLabel) => {
@@ -232,7 +213,6 @@ const formatDateTime = (value) => {
   });
 };
 
-<<<<<<< HEAD
 const getPollWindowState = (poll) => {
   if (!isPollEnabled(poll)) return "inactive";
 
@@ -275,31 +255,6 @@ const refreshPollLifecycleStatuses = async (polls = []) => {
   }
 
   return refreshedRows;
-=======
-const formatDateOnly = (value) => {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "-";
-
-  return parsed.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
-};
-
-const getPollWindowState = (poll) => {
-  if (normalizeText(poll?.status).toLowerCase() !== "active") return "inactive";
-
-  const now = Date.now();
-  const startAt = new Date(poll?.startDate || 0).getTime();
-  const endAt = new Date(poll?.endDate || 0).getTime();
-
-  if (Number.isFinite(startAt) && now < startAt) return "upcoming";
-  if (Number.isFinite(endAt) && now > endAt) return "closed";
-  return "active";
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 };
 
 const canSubmitPoll = (poll, assignment) => {
@@ -474,7 +429,6 @@ const buildPollPayload = ({ body = {}, scopedMasterData }) => {
   }
 
   const description = normalizeText(body?.description || body?.purpose);
-<<<<<<< HEAD
   const requestedStatus = normalizeText(body?.status || "active").toLowerCase();
   if (requestedStatus && !POLL_STATUS_INPUTS.includes(requestedStatus)) {
     throw createHttpError("Select a valid poll status");
@@ -508,19 +462,6 @@ const buildPollPayload = ({ body = {}, scopedMasterData }) => {
     status: isEnabled ? "active" : "inactive",
   });
 
-=======
-  const status = normalizeText(body?.status || "active").toLowerCase();
-  if (!POLL_STATUSES.includes(status)) {
-    throw createHttpError("Select a valid poll status");
-  }
-
-  const startDate = parseDateValue(body?.startDate, "Start date");
-  const endDate = parseDateValue(body?.endDate, "End date");
-  if (endDate.getTime() < startDate.getTime()) {
-    throw createHttpError("End date cannot be earlier than start date");
-  }
-
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   const scopeSelection = resolveSelectedScopeDocs({
     scopeType: body?.scopeType,
     scopeIds: body?.scopeIds,
@@ -534,7 +475,6 @@ const buildPollPayload = ({ body = {}, scopedMasterData }) => {
     scopeIds: scopeSelection.scopeIds,
     questions: parsePollQuestions(body?.questions),
     allowResubmission: parseOptionalBoolean(body?.allowResubmission, false),
-<<<<<<< HEAD
     startDate: startWindow.dateTime,
     startTime: startWindow.time,
     endDate: endWindow.dateTime,
@@ -542,10 +482,6 @@ const buildPollPayload = ({ body = {}, scopedMasterData }) => {
     startDateTime: startWindow.dateTime,
     endDateTime: endWindow.dateTime,
     isEnabled,
-=======
-    startDate,
-    endDate,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     status,
   };
 };
@@ -607,7 +543,6 @@ const mapEmployeeScopeSummary = (employee = {}) => {
 
 const createAssignmentNotifications = async ({ poll, assignments = [] }) => {
   if (!assignments.length) return;
-<<<<<<< HEAD
   if (getPollWindowState(poll) !== "active") return;
 
   const assignmentIds = uniqueIdList(assignments.map((assignment) => assignment?._id));
@@ -631,23 +566,14 @@ const createAssignmentNotifications = async ({ poll, assignments = [] }) => {
 
   await PollNotification.insertMany(
     notificationRows.map((assignment) => ({
-=======
-
-  await PollNotification.insertMany(
-    assignments.map((assignment) => ({
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       poll: poll._id,
       assignment: assignment._id,
       employee: assignment.employee,
       notificationType: "assigned",
       title: `New Poll: ${poll.title}`,
-<<<<<<< HEAD
       message: `Your response is requested before ${formatDateTime(
         getEffectiveEndDateTime(poll)
       )}.`,
-=======
-      message: `Your response is requested before ${formatDateOnly(poll.endDate)}.`,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       routePath: `/polls/my/${assignment._id}`,
     }))
   );
@@ -744,7 +670,6 @@ const syncPollAssignments = async ({ poll, employeeIds = [] }) => {
   }
 };
 
-<<<<<<< HEAD
 const releaseActivePollNotifications = async ({ employeeId, pollId } = {}) => {
   const query = { status: "not_answered" };
   if (employeeId && isValidObjectId(employeeId)) query.employee = toObjectId(employeeId);
@@ -776,8 +701,6 @@ const releaseActivePollNotifications = async ({ employeeId, pollId } = {}) => {
   );
 };
 
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 const getSubmittedResponseCount = async (pollId) =>
   PollAssignment.countDocuments({
     poll: pollId,
@@ -943,12 +866,9 @@ const loadPollAssignmentCounts = async (pollIds = []) => {
 
 const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
   const scopeSummary = formatPollScopeSummary(poll, scopeLabelMap);
-<<<<<<< HEAD
   const windowState = getPollWindowState(poll);
   const startDateTime = getEffectiveStartDateTime(poll);
   const endDateTime = getEffectiveEndDateTime(poll);
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
   return {
     _id: poll._id,
@@ -957,7 +877,6 @@ const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
     scopeType: poll.scopeType,
     scopeSummary,
     startDate: poll.startDate,
-<<<<<<< HEAD
     startTime: getStoredTimePart(poll.startTime, poll.startDateTime, poll.startDate),
     endDate: poll.endDate,
     endTime: getStoredTimePart(poll.endTime, poll.endDateTime, poll.endDate),
@@ -965,19 +884,11 @@ const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
     endDateTime,
     status: windowState,
     isEnabled: isPollEnabled(poll),
-=======
-    endDate: poll.endDate,
-    status: poll.status,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     allowResubmission: Boolean(poll.allowResubmission),
     questionCount: Array.isArray(poll.questions) ? poll.questions.length : 0,
     createdByName: poll.createdByName || "",
     createdAt: poll.createdAt || null,
-<<<<<<< HEAD
     windowState,
-=======
-    windowState: getPollWindowState(poll),
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     counts: counts || {
       total: 0,
       submitted: 0,
@@ -987,7 +898,6 @@ const mapPollListRow = ({ poll, counts, scopeLabelMap }) => {
   };
 };
 
-<<<<<<< HEAD
 const mapPollDetailRow = ({ poll, scopeLabelMap }) => {
   const windowState = getPollWindowState(poll);
   const startDateTime = getEffectiveStartDateTime(poll);
@@ -1030,43 +940,12 @@ const mapMyAssignmentRow = (assignment) => {
   const windowState = getPollWindowState(poll);
   const startDateTime = getEffectiveStartDateTime(poll);
   const endDateTime = getEffectiveEndDateTime(poll);
-=======
-const mapPollDetailRow = ({ poll, scopeLabelMap }) => ({
-  _id: poll._id,
-  title: poll.title,
-  description: poll.description || "",
-  scopeType: poll.scopeType,
-  scopeIds: uniqueIdList(poll.scopeIds),
-  scopeSummary: formatPollScopeSummary(poll, scopeLabelMap),
-  startDate: poll.startDate,
-  endDate: poll.endDate,
-  status: poll.status,
-  allowResubmission: Boolean(poll.allowResubmission),
-  questions: (Array.isArray(poll.questions) ? poll.questions : []).map((question) => ({
-    _id: question._id,
-    questionText: question.questionText,
-    responseType: question.responseType,
-    options: (Array.isArray(question.options) ? question.options : []).map((option) => ({
-      _id: option._id,
-      text: option.text,
-    })),
-  })),
-  createdByName: poll.createdByName || "",
-  createdAt: poll.createdAt || null,
-  updatedAt: poll.updatedAt || null,
-  windowState: getPollWindowState(poll),
-});
-
-const mapMyAssignmentRow = (assignment) => {
-  const poll = assignment?.poll || {};
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   return {
     _id: assignment?._id,
     pollId: poll?._id || null,
     title: normalizeText(poll?.title),
     description: normalizeText(poll?.description),
     startDate: poll?.startDate || null,
-<<<<<<< HEAD
     startTime: getStoredTimePart(poll?.startTime, poll?.startDateTime, poll?.startDate),
     endDate: poll?.endDate || null,
     endTime: getStoredTimePart(poll?.endTime, poll?.endDateTime, poll?.endDate),
@@ -1074,11 +953,6 @@ const mapMyAssignmentRow = (assignment) => {
     endDateTime,
     pollStatus: windowState,
     windowState,
-=======
-    endDate: poll?.endDate || null,
-    pollStatus: normalizeText(poll?.status).toLowerCase() || "inactive",
-    windowState: getPollWindowState(poll),
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     assignmentStatus: normalizeText(assignment?.status).toLowerCase() || "not_answered",
     submittedAt: assignment?.submittedAt || null,
     allowResubmission: Boolean(poll?.allowResubmission),
@@ -1089,12 +963,9 @@ const mapMyAssignmentRow = (assignment) => {
 
 const mapMyAssignmentDetail = ({ assignment, response }) => {
   const poll = assignment?.poll || {};
-<<<<<<< HEAD
   const windowState = getPollWindowState(poll);
   const startDateTime = getEffectiveStartDateTime(poll);
   const endDateTime = getEffectiveEndDateTime(poll);
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
   return {
     _id: assignment?._id,
@@ -1103,7 +974,6 @@ const mapMyAssignmentDetail = ({ assignment, response }) => {
       title: normalizeText(poll?.title),
       description: normalizeText(poll?.description),
       startDate: poll?.startDate || null,
-<<<<<<< HEAD
       startTime: getStoredTimePart(poll?.startTime, poll?.startDateTime, poll?.startDate),
       endDate: poll?.endDate || null,
       endTime: getStoredTimePart(poll?.endTime, poll?.endDateTime, poll?.endDate),
@@ -1112,11 +982,6 @@ const mapMyAssignmentDetail = ({ assignment, response }) => {
       status: windowState,
       isEnabled: isPollEnabled(poll),
       windowState,
-=======
-      endDate: poll?.endDate || null,
-      status: normalizeText(poll?.status).toLowerCase() || "inactive",
-      windowState: getPollWindowState(poll),
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       allowResubmission: Boolean(poll?.allowResubmission),
       questions: (Array.isArray(poll?.questions) ? poll.questions : []).map((question) => ({
         _id: question?._id,
@@ -1293,10 +1158,7 @@ exports.getPolls = async (req, res) => {
     const scopeType = normalizeText(req.query?.scopeType).toLowerCase();
     let rows = await PollMaster.find({}).sort({ createdAt: -1 }).lean();
     rows = await filterVisiblePolls({ polls: rows, access: req.access || {}, user: req.user });
-<<<<<<< HEAD
     rows = await refreshPollLifecycleStatuses(rows);
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
     if (search) {
       const searchRegex = new RegExp(escapeRegex(search), "i");
@@ -1306,11 +1168,7 @@ exports.getPolls = async (req, res) => {
     }
 
     if (status && POLL_STATUSES.includes(status)) {
-<<<<<<< HEAD
       rows = rows.filter((row) => getPollWindowState(row) === status);
-=======
-      rows = rows.filter((row) => normalizeText(row.status).toLowerCase() === status);
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     }
 
     if (scopeType && POLL_SCOPE_TYPES.includes(scopeType)) {
@@ -1509,32 +1367,24 @@ exports.togglePollStatus = async (req, res) => {
       return res.status(404).json({ message: "Poll not found" });
     }
 
-<<<<<<< HEAD
     const nextIsEnabled = !isPollEnabled(poll);
     const nextStatus = getPollWindowState({
       ...poll,
       isEnabled: nextIsEnabled,
       status: nextIsEnabled ? "active" : "inactive",
     });
-=======
-    const nextStatus = normalizeText(poll.status).toLowerCase() === "active" ? "inactive" : "active";
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     const updated = await PollMaster.findByIdAndUpdate(
       poll._id,
       {
         $set: {
           status: nextStatus,
-<<<<<<< HEAD
           isEnabled: nextIsEnabled,
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           ...buildUpdaterSnapshot(req.user),
         },
       },
       { new: true }
     ).lean();
 
-<<<<<<< HEAD
     if (nextStatus === "active") {
       await releaseActivePollNotifications({ pollId: poll._id });
     }
@@ -1544,11 +1394,6 @@ exports.togglePollStatus = async (req, res) => {
       status: updated?.status || nextStatus,
       windowState: getPollWindowState(updated || { ...poll, isEnabled: nextIsEnabled }),
       isEnabled: updated?.isEnabled ?? nextIsEnabled,
-=======
-    return res.json({
-      message: `Poll ${nextStatus === "active" ? "activated" : "deactivated"} successfully`,
-      status: updated?.status || nextStatus,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     });
   } catch (err) {
     console.error("TOGGLE POLL STATUS ERROR:", err);
@@ -1564,10 +1409,7 @@ exports.getMyAssignedPolls = async (req, res) => {
 
     const search = normalizeText(req.query?.search);
     const status = normalizeText(req.query?.status).toLowerCase();
-<<<<<<< HEAD
     await releaseActivePollNotifications({ employeeId: req.user.id });
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     let assignments = await PollAssignment.find({
       employee: req.user.id,
       status: { $ne: "revoked" },
@@ -1603,10 +1445,7 @@ exports.getMyPollByAssignment = async (req, res) => {
       return res.status(403).json({ message: "Only employees can open assigned polls" });
     }
 
-<<<<<<< HEAD
     await releaseActivePollNotifications({ employeeId: req.user.id });
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     const assignment = await PollAssignment.findOne({
       _id: req.params.assignmentId,
       employee: req.user.id,
@@ -1940,20 +1779,16 @@ exports.getPollReport = async (req, res) => {
       ).values()
     ).sort((left, right) => left.label.localeCompare(right.label));
 
-<<<<<<< HEAD
     const pollWindowState = getPollWindowState(poll);
     const startDateTime = getEffectiveStartDateTime(poll);
     const endDateTime = getEffectiveEndDateTime(poll);
 
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     return res.json({
       poll: {
         _id: poll._id,
         title: poll.title,
         description: poll.description || "",
         startDate: poll.startDate,
-<<<<<<< HEAD
         startTime: getStoredTimePart(poll.startTime, poll.startDateTime, poll.startDate),
         endDate: poll.endDate,
         endTime: getStoredTimePart(poll.endTime, poll.endDateTime, poll.endDate),
@@ -1962,10 +1797,6 @@ exports.getPollReport = async (req, res) => {
         status: pollWindowState,
         windowState: pollWindowState,
         isEnabled: isPollEnabled(poll),
-=======
-        endDate: poll.endDate,
-        status: poll.status,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         scopeType: poll.scopeType,
       },
       summary: {
@@ -1998,10 +1829,7 @@ exports.getMyPollNotifications = async (req, res) => {
       return res.status(403).json({ message: "Only employees can view poll notifications" });
     }
 
-<<<<<<< HEAD
     await releaseActivePollNotifications({ employeeId: req.user.id });
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     const unreadRows = await PollNotification.find({
       employee: req.user.id,
       readAt: null,
@@ -2025,11 +1853,7 @@ exports.getMyPollNotifications = async (req, res) => {
       .filter((assignment) => !unreadAssignmentIds.has(normalizeId(assignment._id)))
       .filter((assignment) => getPollWindowState(assignment.poll) === "active")
       .filter((assignment) => {
-<<<<<<< HEAD
         const endAt = getDateTimeMillis(getEffectiveEndDateTime(assignment.poll));
-=======
-        const endAt = new Date(assignment.poll.endDate || 0).getTime();
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         return Number.isFinite(endAt) && endAt >= now && endAt - now <= REMINDER_WINDOW_MS;
       })
       .slice(0, 10)
@@ -2037,15 +1861,9 @@ exports.getMyPollNotifications = async (req, res) => {
         _id: `reminder-${assignment._id}`,
         assignmentId: normalizeId(assignment._id),
         title: normalizeText(assignment.poll.title),
-<<<<<<< HEAD
         message: `Response due by ${formatDateTime(getEffectiveEndDateTime(assignment.poll))}.`,
         routePath: `/polls/my/${assignment._id}`,
         createdAt: getEffectiveEndDateTime(assignment.poll),
-=======
-        message: `Response due by ${formatDateTime(assignment.poll.endDate)}.`,
-        routePath: `/polls/my/${assignment._id}`,
-        createdAt: assignment.poll.endDate,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       }));
 
     return res.json({

@@ -3,16 +3,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
   formatPollAssignmentStatusLabel,
-<<<<<<< HEAD
   formatPollDateTime,
   formatPollWindowStateLabel,
   getPollAssignmentBadgeClass,
   getPollWindowBadgeClass,
-=======
-  formatPollDate,
-  formatPollDateTime,
-  getPollAssignmentBadgeClass,
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 } from "../../utils/pollDisplay";
 import {
   buildPollShareSummary,
@@ -411,7 +405,6 @@ export default function PollReport() {
       ) : (
         <>
           <div className="row g-3 mb-4">
-<<<<<<< HEAD
             <div className="col-lg-3">
               <div className="soft-card h-100">
                 <div className="small text-muted">Poll Window</div>
@@ -432,27 +425,12 @@ export default function PollReport() {
               </div>
             </div>
             <div className="col-lg-3">
-=======
-            <div className="col-lg-4">
-              <div className="soft-card h-100">
-                <div className="small text-muted">Poll Window</div>
-                <div className="fw-semibold">
-                  {formatPollDate(reportData.poll?.startDate)} to {formatPollDate(reportData.poll?.endDate)}
-                </div>
-              </div>
-            </div>
-            <div className="col-lg-4">
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
               <div className="soft-card h-100">
                 <div className="small text-muted">Total Responses</div>
                 <div className="display-6 fw-semibold">{reportData.summary?.totalResponses || 0}</div>
               </div>
             </div>
-<<<<<<< HEAD
             <div className="col-lg-3">
-=======
-            <div className="col-lg-4">
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
               <div className="soft-card h-100">
                 <div className="small text-muted">Pending Responses</div>
                 <div className="display-6 fw-semibold">{reportData.summary?.pendingResponses || 0}</div>

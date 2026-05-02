@@ -17,11 +17,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
-<<<<<<< HEAD
-    "dotenv": "^17.4.2",
-=======
     "dotenv": "^17.3.1",
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.4.1",

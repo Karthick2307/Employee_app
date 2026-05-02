@@ -981,11 +981,7 @@ a:hover {
   color: var(--app-text) !important;
 }
 
-<<<<<<< HEAD
 .table > thead.table-warning > tr > * {
-=======
-.table-warning > :not(caption) > * > * {
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   background-color: var(--app-table-warning-bg) !important;
   color: var(--app-text) !important;
 }
@@ -4161,7 +4157,6 @@ a:hover {
   line-height: 1;
 }
 
-<<<<<<< HEAD
 .table > tbody > tr.table-danger .app-icon-action-btn:hover,
 .table > tbody > tr.table-danger .app-icon-action-btn:focus-visible,
 .table > tbody > tr.table-warning .app-icon-action-btn:hover,
@@ -4173,8 +4168,6 @@ a:hover {
   color: var(--bs-btn-hover-color) !important;
 }
 
-=======
->>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 .bg-primary-subtle {
   background-color: var(--app-brand-soft) !important;
   color: var(--app-text) !important;
