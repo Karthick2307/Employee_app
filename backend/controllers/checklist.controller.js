@@ -111,18 +111,21 @@ const CHECKLIST_REQUEST_NOTIFICATION_TYPES = {
 };
 
 const checklistExcelColumns = [
+  { header: "Assigned Site", key: "assignedSite", width: 32 },
+  { header: "Assign To Employee", key: "assignedEmployeeCode", width: 30 },
   { header: "Checklist Number", key: "checklistNumber", width: 18 },
   { header: "Checklist Name", key: "checklistName", width: 28 },
-  { header: "Assigned Site", key: "assignedSite", width: 28 },
-  { header: "Source Site", key: "sourceSite", width: 28 },
-  { header: "Assigned Employee Code", key: "assignedEmployeeCode", width: 22 },
-  { header: "Priority", key: "priority", width: 12 },
+  { header: "Task Scoring", key: "enableMark", width: 16 },
+  { header: "Checklist Source Site", key: "sourceSite", width: 32 },
+  { header: "Dependent Task", key: "isDependentTask", width: 16 },
   { header: "Schedule Type", key: "scheduleType", width: 14 },
   { header: "Start Date", key: "startDate", width: 14 },
-  { header: "Schedule Time", key: "scheduleTime", width: 14 },
+  { header: "Start Time", key: "scheduleTime", width: 14 },
   { header: "End Date", key: "endDate", width: 14 },
   { header: "End Time", key: "endTime", width: 14 },
-  { header: "Enable Mark", key: "enableMark", width: 12 },
+  { header: "Approval Workflow", key: "approvalHierarchy", width: 18 },
+  { header: "Task Related Questions", key: "checklistItems", width: 48 },
+  { header: "Priority", key: "priority", width: 12 },
   { header: "Base Mark", key: "baseMark", width: 12 },
   { header: "Delay Penalty Per Day", key: "delayPenaltyPerDay", width: 20 },
   { header: "Advance Bonus Per Day", key: "advanceBonusPerDay", width: 20 },
@@ -131,12 +134,9 @@ const checklistExcelColumns = [
   { header: "Repeat Day Of Week", key: "repeatDayOfWeek", width: 18 },
   { header: "Repeat Day Of Month", key: "repeatDayOfMonth", width: 18 },
   { header: "Repeat Month Of Year", key: "repeatMonthOfYear", width: 20 },
-  { header: "Approval Hierarchy", key: "approvalHierarchy", width: 18 },
   { header: "Approval Employee Codes", key: "approvalEmployeeCodes", width: 24 },
-  { header: "Dependent Task", key: "isDependentTask", width: 14 },
   { header: "Previous Task Number", key: "dependencyTaskNumber", width: 24 },
   { header: "Target Day Count", key: "targetDayCount", width: 18 },
-  { header: "Task Related Questions", key: "checklistItems", width: 48 },
 ];
 
 const checklistTaskReportExcelColumns = [
@@ -1809,6 +1809,41 @@ const buildApprovalCodesCellValue = (approvals = []) =>
     .filter(Boolean)
     .join(" | ");
 
+const formatExcelDateDisplay = (value) => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const shiftedDate = new Date(date.getTime() + IST_OFFSET_MS);
+  return [
+    pad(shiftedDate.getUTCDate()),
+    pad(shiftedDate.getUTCMonth() + 1),
+    shiftedDate.getUTCFullYear(),
+  ].join("-");
+};
+
+const formatExcelTimeDisplay = (value) => {
+  const normalized = normalizeText(value);
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return normalized;
+
+  let hours = Number(match[1]);
+  const minutes = match[2];
+  const suffix = hours >= 12 ? "PM" : "AM";
+  hours %= 12;
+  if (hours === 0) hours = 12;
+
+  return `${pad(hours)}:${minutes} ${suffix}`;
+};
+
+const formatChecklistScoringLabel = (checklist = {}) =>
+  checklist.enableMark ? "Enabled" : "Disabled";
+
+const formatApprovalHierarchyLabel = (value) => {
+  const normalized = normalizeText(value || "default").toLowerCase();
+  return normalized === "custom" ? "Custom" : "Default";
+};
+
 const getChecklistFilters = (query = {}) => {
   const search = normalizeText(query.search);
   const scheduleType = normalizeText(query.scheduleType).toLowerCase();
@@ -3106,106 +3141,84 @@ exports.exportChecklistsExcel = async (req, res) => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Check List Workspace";
 
-    const instructionsSheet = workbook.addWorksheet(CHECKLIST_INSTRUCTIONS_SHEET_NAME);
-    instructionsSheet.columns = [
-      { header: "Field", key: "field", width: 28 },
-      { header: "How To Fill", key: "description", width: 80 },
-      { header: "Example", key: "example", width: 40 },
-    ];
-    instructionsSheet.getRow(1).font = { bold: true };
-    instructionsSheet.addRows([
-      {
-        field: "Assigned Site",
-        description:
-          "Use the exact site display name from Site Master. Exported rows already use the correct format.",
-        example: "Repplen Project Pvt Ltd - Head Office Repplen",
-      },
-      {
-        field: "Assigned Employee Code",
-        description:
-          "Use the exact employee code of the employee who should receive generated tasks.",
-        example: "5012",
-      },
-      {
-        field: "Schedule Type",
-        description: "Allowed values: daily, weekly, monthly, yearly, custom.",
-        example: "daily",
-      },
-      {
-        field: "Start Date / End Date",
-        description: "Use YYYY-MM-DD format.",
-        example: "2026-03-23",
-      },
-      {
-        field: "Schedule Time / End Time",
-        description: "Use 24-hour HH:mm format.",
-        example: "09:00",
-      },
-      {
-        field: "Approval Employee Codes",
-        description:
-          "For custom workflow only. Separate multiple employee codes with | or line breaks.",
-        example: "1003 | 1007",
-      },
-      {
-        field: "Dependent Task",
-        description: "Optional. Use yes or no to control whether the checklist waits for a previous task.",
-        example: "yes",
-      },
-      {
-        field: "Previous Task Number",
-        description:
-          "Required when Dependent Task is yes. Enter the existing checklist number that must finish first.",
-        example: "HO - 001",
-      },
-      {
-        field: "Target Day Count",
-        description:
-          "Required when Dependent Task is yes. Enter the number of days after the previous task completion when the new task becomes due.",
-        example: "2",
-      },
-      {
-        field: "Task Related Questions",
-        description:
-          "Format each question as Question::Guidance::RequiredFlag and separate questions with | or line breaks.",
-        example: "Was PPE worn?::Mention the safety gear used::yes | Upload evidence::Share the proof file name::no",
-      },
-    ]);
-
     const worksheet = workbook.addWorksheet(CHECKLIST_EXCEL_SHEET_NAME);
-    worksheet.columns = checklistExcelColumns;
+    const exportColumns = [
+      { header: "Assigned Site", key: "assignedSite", width: 30 },
+      { header: "Assign To Employee", key: "assignedEmployeeCode", width: 34 },
+      { header: "Checklist Number", key: "checklistNumber", width: 18 },
+      { header: "Checklist Name", key: "checklistName", width: 30 },
+      { header: "Task Scoring", key: "enableMark", width: 16 },
+      { header: "Checklist Source Site", key: "sourceSite", width: 30 },
+      { header: "Dependent Task", key: "isDependentTask", width: 16 },
+      { header: "Schedule Type", key: "scheduleType", width: 16 },
+      { header: "Start Date", key: "startDate", width: 14 },
+      { header: "Start Time", key: "scheduleTime", width: 14 },
+      { header: "End Date", key: "endDate", width: 14 },
+      { header: "End Time", key: "endTime", width: 14 },
+      { header: "Approval Workflow", key: "approvalHierarchy", width: 20 },
+      { header: "Task Related Questions", key: "checklistItems", width: 56 },
+    ];
+
+    worksheet.columns = exportColumns;
     worksheet.getRow(1).font = { bold: true };
     worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: exportColumns.length },
+    };
+
+    worksheet.addRow({
+      assignedSite: "Head Office",
+      assignedEmployeeCode: "EMP001 - Priya Sharma",
+      checklistNumber: "CL-001",
+      checklistName: "Daily Safety Checklist",
+      enableMark: "Enabled",
+      sourceSite: "Head Office",
+      isDependentTask: "No",
+      scheduleType: "daily",
+      startDate: "02-05-2026",
+      scheduleTime: "09:00 AM",
+      endDate: "31-05-2026",
+      endTime: "06:00 PM",
+      approvalHierarchy: "Default",
+      checklistItems:
+        "Was PPE worn?::Mention safety gear used::yes | Upload evidence::Attach proof if available::no",
+    });
+
+    worksheet.addRow({
+      assignedSite: "Use exact Site name",
+      assignedEmployeeCode: "Employee must exist",
+      checklistNumber: "Use existing or new checklist number",
+      checklistName: "Enter checklist name",
+      enableMark: "Enabled / Disabled",
+      sourceSite: "Use exact source Site name if applicable",
+      isDependentTask: "Yes / No",
+      scheduleType: "daily / weekly / monthly / yearly / custom",
+      startDate: "Date format: dd-mm-yyyy",
+      scheduleTime: "Time format: hh:mm AM/PM",
+      endDate: "Date format: dd-mm-yyyy",
+      endTime: "Time format: hh:mm AM/PM",
+      approvalHierarchy: "Default / Custom",
+      checklistItems: "Question::Guidance::yes, separate multiple questions with |",
+    });
+    worksheet.getRow(2).font = { italic: true };
+    worksheet.getRow(3).font = { italic: true, color: { argb: "FF666666" } };
 
     checklists.forEach((checklist) => {
       worksheet.addRow({
         checklistNumber: checklist.checklistNumber || "",
         checklistName: checklist.checklistName || "",
-        assignedSite: formatSiteDisplayName(checklist.employeeAssignedSite),
-        sourceSite: formatSiteDisplayName(checklist.checklistSourceSite),
-        assignedEmployeeCode: normalizeText(checklist.assignedToEmployee?.employeeCode),
-        priority: normalizeText(checklist.priority || "medium"),
+        assignedSite: normalizeText(checklist.employeeAssignedSite?.name),
+        sourceSite: normalizeText(checklist.checklistSourceSite?.name),
+        assignedEmployeeCode: formatEmployeeDisplayName(checklist.assignedToEmployee),
         scheduleType: normalizeText(checklist.scheduleType),
-        startDate: getExcelDateString(checklist.startDate),
-        scheduleTime: normalizeText(checklist.scheduleTime),
-        endDate: getExcelDateString(checklist.endDate),
-        endTime: normalizeText(checklist.endTime),
-        enableMark: checklist.enableMark ? "yes" : "no",
-        baseMark: checklist.baseMark ?? "",
-        delayPenaltyPerDay: checklist.delayPenaltyPerDay ?? "",
-        advanceBonusPerDay: checklist.advanceBonusPerDay ?? "",
-        customRepeatInterval: checklist.customRepeatInterval ?? "",
-        customRepeatUnit: normalizeText(checklist.customRepeatUnit),
-        repeatDayOfWeek: normalizeText(checklist.repeatDayOfWeek),
-        repeatDayOfMonth: checklist.repeatDayOfMonth ?? "",
-        repeatMonthOfYear: checklist.repeatMonthOfYear ?? "",
-        approvalHierarchy: normalizeText(checklist.approvalHierarchy || "default"),
-        approvalEmployeeCodes: buildApprovalCodesCellValue(checklist.approvals),
-        isDependentTask: checklist.isDependentTask ? "yes" : "no",
-        dependencyTaskNumber:
-          normalizeText(checklist.dependencyTaskNumber) ||
-          normalizeText(checklist.dependencyChecklistId?.checklistNumber),
-        targetDayCount: checklist.targetDayCount ?? "",
+        startDate: formatExcelDateDisplay(checklist.startDate),
+        scheduleTime: formatExcelTimeDisplay(checklist.scheduleTime),
+        endDate: formatExcelDateDisplay(checklist.endDate),
+        endTime: formatExcelTimeDisplay(checklist.endTime),
+        enableMark: formatChecklistScoringLabel(checklist),
+        approvalHierarchy: formatApprovalHierarchyLabel(checklist.approvalHierarchy),
+        isDependentTask: checklist.isDependentTask ? "Yes" : "No",
         checklistItems: buildChecklistItemsCellValue(checklist.checklistItems),
       });
     });
