@@ -1,31 +1,50 @@
 # Full Project Analysis Report
 
-Generated on: April 30, 2026
+Generated on: May 2, 2026
 Analysis type: Static codebase review plus local verification
-Workspace: `e:\FIles date\28.04.2026 Test\28.04.2026 Today check`
-Status note: The repo currently has uncommitted working-tree changes. This report reflects the inspected working tree, not a committed release tag.
+Workspace: `c:\Users\REPPLEN\Desktop\Check\Employee_app`
+Status note: The codebase was clean before this report refresh. This report reflects the current local project state after the latest Employee Master, Checklist Master, and Polling System updates.
 
 ## 1. Executive Summary
 
-This project is a full employee operations platform built with React, Vite, Express, MongoDB, and Mongoose. It is broad in scope and already contains production-style modules for employee master data, checklist workflows, attendance, polling, complaints, chat, dashboard analytics, permissions, reports, feedback, and workflow administration.
+This project is a full employee operations platform built with React, Vite, Express, MongoDB, and Mongoose. It includes employee master data, checklist workflows, attendance, polling, complaints, chat, dashboard analytics, permissions, reports, feedback, and supporting administration screens.
 
-The codebase has moved from a feature-rich but under-hardened internal app toward a more production-ready structure. The latest workspace includes explicit environment validation, Helmet security headers, explicit CORS origins, auth rate limiting, shared request validation, centralized API error handling, shared upload configuration, structured request logging, soft-delete protections, root scripts, test setup, and README documentation.
+The project is now in a stronger internal-production posture than the earlier April reports. It has environment validation, security middleware, explicit CORS configuration, validation middleware, reusable upload handling, structured request logging, tests, deployment notes, and a broad permission model. Recent work also improved operational safety around status changes and poll scheduling.
 
 Current assessment:
 
 - Product coverage: high
-- Backend architecture: good, with some oversized controllers/services
-- Frontend architecture: good enough for current scale, but several large pages and CSS files need decomposition
-- Security posture: improved significantly, with remaining session-storage and operational hardening considerations
-- Validation posture: improved through Zod middleware and module schemas
-- Testing posture: now present and passing, but still basic coverage
-- Production readiness: moderate to good for controlled internal deployment, with clear next steps before wider exposure
+- Backend architecture: good, with several large controller/service hotspots
+- Frontend architecture: good enough for current scale, with some large pages/CSS still needing decomposition
+- Security posture: improved, with remaining token-storage and upload-access considerations
+- Validation posture: improved through Zod validators and controller-level checks
+- Testing posture: present and passing, but still not deep enough for full production confidence
+- Production readiness: good for controlled internal deployment, with clear hardening work remaining before broader exposure
 
-## 2. Current Repository Snapshot
+## 2. Latest Updates As Of May 2, 2026
+
+Recent functional updates now present in the codebase:
+
+- Employee Master status change now uses a modal confirmation before Active/Inactive updates.
+- Employee status update now explicitly updates `isActive` and shows a success message after the UI refreshes.
+- Checklist Master status change now uses a modal confirmation before Active/Inactive updates.
+- Checklist Master status update now updates `isActive`, `status`, `updatedAt`, and `updatedBy` where available.
+- Checklist deactivation no longer deletes Checklist Master records or generated employee tasks.
+- Checklist priority medium selected row/action hover styling has been corrected.
+- Poll Master now supports Start Date, Start Time, End Date, and End Time.
+- Poll lifecycle now evaluates against combined IST date-time windows.
+- Poll status now resolves as `upcoming`, `active`, `expired`, or `inactive`.
+- Assigned poll submission is disabled outside the active poll window.
+- Poll reports now include poll date-time window and poll status.
+- Poll notifications are released when a poll becomes active, with reminder logic still based on the end date-time window.
+
+These updates materially reduce accidental status changes and make the polling module time-aware rather than date-only.
+
+## 3. Current Repository Snapshot
 
 Fresh counts from the current workspace:
 
-- Backend source files excluding `node_modules`, uploads, and coverage: 114
+- Backend project files excluding runtime directories: 117
 - Frontend source files under `frontend/src`: 102
 - Backend route files: 18
 - Backend controllers: 14
@@ -36,17 +55,17 @@ Fresh counts from the current workspace:
 Package layout:
 
 - Root package: orchestration scripts for `dev`, `build`, `lint`, and `test`
-- Backend package: Express/Mongoose app and Jest/Supertest tests
-- Frontend package: React/Vite app, ESLint, Vitest, and React Testing Library tests
+- Backend package: Express/Mongoose app with Jest and Supertest tests
+- Frontend package: React/Vite app with ESLint, Vitest, React Testing Library, and Jest DOM matchers
 
 Repo hygiene status:
 
-- `.gitignore` now excludes `node_modules`, build output, coverage, env files, uploads, backend logs, and generic log files.
+- `.gitignore` excludes dependency folders, build output, coverage, env files, uploads, backend logs, and generic log files.
 - Runtime uploads and backend logs are ignored.
-- Backend `node_modules` and generated upload/log artifacts have been removed from git tracking in the current staged/working state.
 - `.env.example`, `backend/.env.example`, and `frontend/.env.example` exist for environment onboarding.
+- `git status --short` was clean before this report file was regenerated.
 
-## 3. Technology Stack
+## 4. Technology Stack
 
 Backend:
 
@@ -70,7 +89,7 @@ Frontend:
 - React Router DOM `7.13.1`
 - Axios `1.13.5`
 - Bootstrap `5.3.8`
-- Chart.js and Recharts
+- Chart.js, React Chart.js, and Recharts
 - ESLint
 - Vitest
 - React Testing Library
@@ -79,30 +98,44 @@ Frontend:
 Deployment pattern:
 
 - Development frontend runs through Vite.
-- Backend runs on Express, currently verified on port `5000`.
-- Frontend API defaults use the centralized Axios client.
-- IIS deployment support exists through the existing IIS documentation and public web config flow.
+- Backend runs on Express and is currently verified on port `5000`.
+- Frontend API requests use the centralized Axios client.
+- IIS deployment support exists through `IIS_DEPLOYMENT.md`.
 
-## 4. Current Runtime Status
+## 5. Current Verification Status
 
-The backend was checked from the terminal after the latest fixes.
+Commands run on May 2, 2026:
 
-Observed status:
+```text
+npm run lint
+Result: passed
+Note: Node emitted a non-blocking DEP0040 punycode deprecation warning.
+```
 
-- Backend process is running.
+```text
+npm run test
+Backend: 8 suites passed, 15 tests passed
+Frontend: 7 files passed, 11 tests passed
+Result: passed
+Note: Node emitted a non-blocking DEP0040 punycode deprecation warning.
+```
+
+```text
+npm run build
+Result: passed
+Vite transformed 805 modules and completed the production frontend build.
+Largest generated JS asset observed: `vendor-charts` at about 381 KB.
+Largest generated static image observed: `login` JPG at about 751 KB.
+```
+
+Runtime checks:
+
 - Backend is listening on `http://localhost:5000`.
-- Frontend dev server is listening on `http://localhost:5173`.
-- `GET http://localhost:5000/api/health` returns `{ ok: true }`.
-- MongoDB connection succeeds during backend startup.
-- Permission catalog synchronization succeeds during backend startup.
-- Background schedulers start successfully.
+- `GET http://localhost:5000/api/health` returns `{"ok":true}`.
+- Frontend Vite server was observed on port `5173`.
+- A secondary local Vite instance was also observed on port `5174`.
 
-Current non-blocking runtime warning:
-
-- Mongoose reports a duplicate schema index on `{"assignment":1}` for model `PollResponse`.
-- This does not stop the server, but should be cleaned up by removing the duplicate index declaration in `PollResponse`.
-
-## 5. Architecture Overview
+## 6. Architecture Overview
 
 ### Backend Architecture
 
@@ -115,23 +148,29 @@ Backend structure:
 - `backend/controllers`: request-level orchestration and response handling
 - `backend/services`: workflow, scheduling, permissions, chatbot, and lifecycle logic
 - `backend/models`: Mongoose schemas
-- `backend/middleware`: auth, permissions, validation, uploads, logging, errors, rate limiting
+- `backend/middleware`: auth, permissions, validation, uploads, logging, errors, and rate limiting
 - `backend/validators`: Zod schemas by module
 - `backend/tests`: Jest/Supertest tests
 - `backend/utils`: shared HTTP/error helpers
 
-Key backend improvements now present:
+Backend strengths:
 
-- Express app is separated from server startup, which makes tests and reuse easier.
-- Environment variables are centralized in `backend/config/env.js`.
-- Startup fails fast if required env vars are missing.
-- `helmet` is applied globally.
-- CORS origins are explicit from env.
-- Auth/login routes have rate limiting.
+- Express app is separated from startup, which supports tests.
+- Required environment variables are centralized and validated.
+- Helmet is applied globally.
+- CORS origins are explicit.
+- Auth routes use rate limiting.
 - Request logging is structured.
-- Error responses are normalized.
+- Important modules use shared validation middleware.
 - Upload handling is centralized.
-- Important module routes use validation middleware.
+- Permission checks are enforced through middleware.
+
+Backend concerns:
+
+- Several controllers remain very large.
+- Some business workflows still live directly in controllers instead of services.
+- More query validation is needed for complex reports and dashboards.
+- Some older flows still rely on local `try/catch` response handling rather than a fully centralized async pattern.
 
 ### Frontend Architecture
 
@@ -139,23 +178,30 @@ Frontend structure:
 
 - `frontend/src/main.jsx`: React entry point
 - `frontend/src/App.jsx`: route tree and route guards
-- `frontend/src/context`: permission state and hook exports
-- `frontend/src/api`: centralized API clients by module
+- `frontend/src/context`: permission state and provider
+- `frontend/src/api`: module API clients
 - `frontend/src/pages`: screen-level modules
 - `frontend/src/components`: shared UI components
 - `frontend/src/utils`: display, reporting, session, and domain helpers
-- `frontend/src/test`: Vitest and React Testing Library tests
+- `frontend/src/test`: Vitest setup and React Testing Library tests
 
-Key frontend improvements now present:
+Frontend strengths:
 
-- Permission context was split so Fast Refresh rules are respected.
-- `usePermissions` is exported from a dedicated hook file.
-- Module-specific API clients exist for auth, permissions, attendance, checklist, complaints, polls, and employees.
-- Invalid tokens are now cleared instead of leaving users trapped on an access-denied screen.
-- Attendance screens no longer use conditional hooks.
-- ESLint currently passes.
+- Permission-aware route guards are in place.
+- Invalid tokens are cleared instead of trapping users on access-denied screens.
+- Module-specific API helpers exist for key areas.
+- Poll, checklist, complaint, attendance, and permission areas have domain-specific utilities.
+- Production build succeeds.
+- ESLint passes.
 
-## 6. Module Coverage
+Frontend concerns:
+
+- `frontend/src/index.css` is still very large.
+- Several page files are above 900 lines.
+- Some pages still combine data loading, filters, tables, charts, modals, and actions in one component.
+- Route-level lazy loading is still recommended even though the current build is passing cleanly.
+
+## 7. Module Coverage
 
 The project currently includes code for these modules:
 
@@ -196,7 +242,7 @@ The project currently includes code for these modules:
 
 This is a mature internal operations app rather than a small CRUD application.
 
-## 7. Data Model Snapshot
+## 8. Data Model Snapshot
 
 Confirmed backend model files:
 
@@ -234,21 +280,22 @@ Confirmed backend model files:
 Important model notes:
 
 - `User` includes `isActive`.
+- `Employee` uses `isActive` for status.
 - `Company` includes `isActive`.
-- `Checklist` includes `isDeleted` and `deletedAt`.
-- Several master-data flows now use soft-delete or active filtering.
-- Checklist master deletion is protected from deleting generated employee tasks.
+- `Checklist` includes `isDeleted`, `deletedAt`, `isActive`, and `updatedBy`.
+- `PollMaster` now includes `startTime`, `endTime`, `startDateTime`, `endDateTime`, `isEnabled`, and lifecycle `status`.
+- Checklist Master and Employee Master status flows now preserve history rather than deleting records.
 
-## 8. Permission System Assessment
+## 9. Permission System Assessment
 
-The permission system remains one of the strongest architectural parts of the project.
+The permission system remains one of the strongest architectural areas.
 
 Strengths:
 
 - Central module catalog in `backend/config/permissions.js`.
-- Central action mapping with consistent fields such as `canView`, `canAdd`, `canEdit`, and `canReportView`.
+- Central action mapping with fields such as `canView`, `canAdd`, `canEdit`, and `canReportView`.
 - Seeded system roles and permissions.
-- Backend middleware can enforce module/action access.
+- Backend middleware enforces module/action access.
 - Frontend route guards use resolved permission profiles.
 - `/api/permissions/me` resolves current user role, modules, permissions, scope, and home path.
 
@@ -269,44 +316,40 @@ Important behavior:
 
 Risk:
 
-- If role permission rows already exist in the database, permission seed sync does not overwrite existing rows. That preserves admin changes, but newly added module permissions may require a one-time permission review in the UI.
+- If role permission rows already exist in the database, permission seed sync preserves admin changes instead of overwriting existing rows. This is safer operationally, but newly added permissions may require a one-time UI review.
 
-## 9. Security Hardening Status
+## 10. Security Hardening Status
 
 Implemented:
 
-- Removed unsafe backend reliance on default JWT fallback.
-- Removed unsafe backend reliance on a Mongo URI fallback through required env validation.
-- Replaced permissive CORS fallback with explicit allowed origins.
-- Added `backend/config/env.js`.
-- Added `.env.example` files.
-- Added `helmet`.
-- Added auth/login rate limiting.
-- Added centralized request size limits for JSON and URL-encoded payloads.
-- Added shared upload MIME and size checks.
-- Added safer upload filename generation.
-- Added `isActive` checks for users/employees in auth resolution.
-- Added standardized error responses.
-- Avoided stack traces outside development responses.
+- Required backend env validation for JWT and MongoDB config.
+- Explicit CORS origin configuration.
+- Helmet security headers.
+- Auth/login rate limiting.
+- Request body size limits.
+- Shared upload MIME and size checks.
+- Safer upload filename generation.
+- `isActive` checks for users/employees in auth resolution.
+- Standardized error responses.
+- Stack traces avoided outside development responses.
 
 Current local development env:
 
-- `backend/.env` contains local-only values for `JWT_SECRET` and `CORS_ORIGIN`.
-- The file is ignored by git, which is correct.
-- Production must use a strong secret and exact production frontend origin.
+- Local `.env` files are ignored by git, which is correct.
+- Production must use a strong `JWT_SECRET` and exact production frontend origin.
 
 Remaining security considerations:
 
-- Tokens and user payloads are still stored in `localStorage`. This is common for internal apps, but XSS would expose the token.
+- Tokens and user payloads are still stored in `localStorage`.
 - No refresh-token rotation or HTTP-only cookie strategy is present.
-- Static `/uploads` serving should be reviewed before public internet exposure, especially around sensitive complaint/chat attachments.
-- API documentation and security headers should be verified in the real deployment environment.
+- Static `/uploads` serving should be reviewed before public internet exposure.
+- Sensitive complaint/chat/checklist attachments may need authenticated download endpoints.
+- Upload virus scanning is not present.
 
-## 10. Validation Layer Status
+## 11. Validation Layer Status
 
-Implemented:
+Implemented validators:
 
-- `backend/middleware/validateRequest.js`
 - `backend/validators/common.js`
 - `backend/validators/auth.validator.js`
 - `backend/validators/employee.validator.js`
@@ -324,19 +367,18 @@ Applied to important routes:
 - Poll
 - Complaint
 
-Validation style:
+Recent validation improvement:
 
-- Zod is used for schema validation.
-- Common helpers normalize object ids, booleans, numbers, dates, times, and trimmed strings.
-- Validation errors are routed through the common error response contract.
+- Poll create/update validation now requires both date and time inputs.
+- Poll backend validation rejects windows where End Date Time is not greater than Start Date Time.
 
 Remaining work:
 
-- Some older controllers still contain manual validation logic.
-- Validation should gradually be expanded to all legacy write endpoints.
-- Query string validation should be added for complex dashboard/report filters.
+- Expand validation to all older write endpoints.
+- Add query string validation for complex dashboards and reports.
+- Add regression tests for validation failure messages in critical flows.
 
-## 11. Error Handling and Observability
+## 12. Error Handling and Observability
 
 Implemented:
 
@@ -355,29 +397,29 @@ Standard API error shape:
 }
 ```
 
-Observability improvements:
+Observability strengths:
 
-- Startup logs clearly report MongoDB connection, permission sync, scheduler startup, server port, environment, and allowed CORS origins.
-- HTTP request logs are emitted as structured JSON through Morgan.
+- Startup logs report MongoDB connection, permission sync, scheduler startup, server port, environment, and allowed CORS origins.
+- HTTP request logs are emitted through Morgan.
 - Unexpected 500-level errors are logged on the server.
 
 Remaining work:
 
-- Logs are not yet routed to a persistent structured logging backend.
-- No request correlation id is present yet.
-- No health endpoint details beyond basic `ok: true`.
+- Logs are not routed to a persistent structured logging backend.
+- No request correlation id is present.
+- Health endpoint is basic.
 - No metrics or tracing integration is present.
 
-## 12. Upload Security Status
+## 13. Upload Security Status
 
 Implemented:
 
 - `backend/middleware/uploadFactory.js` centralizes disk and memory upload policy.
 - Shared safe filename handling uses timestamp, UUID, sanitized base name, and MIME-based extension mapping.
-- MIME allowlists are now configured consistently through reusable upload helpers.
-- File size limits are applied consistently by middleware.
+- MIME allowlists are configured through reusable upload helpers.
+- File size limits are applied by middleware.
 
-Upload middleware now using shared policy:
+Upload middleware using shared policy:
 
 - `backend/middleware/upload.js`
 - `backend/middleware/chatUpload.js`
@@ -388,116 +430,150 @@ Upload middleware now using shared policy:
 
 Remaining work:
 
-- Consider virus scanning before production if uploads can come from untrusted users.
+- Add upload tests for rejected MIME types and oversized files.
 - Consider private object storage for sensitive attachments.
-- Consider signed access URLs or role-gated attachment serving for complaint/chat files.
+- Consider signed URLs or authenticated download routes for protected files.
+- Add cleanup policy for orphaned uploads.
 
-## 13. Production Data Safety
+## 14. Production Data Safety
 
 Implemented:
 
-- Soft delete or inactive flags are used for important master data.
-- Employee deletes now deactivate rather than hard-delete.
-- User deletes now deactivate rather than hard-delete.
-- Company/site/department/designation deletion flows now favor inactive records.
-- Checklist master delete is protected from deleting generated employee tasks.
-- Checklist master delete blocks or skips records that already have generated tasks.
-- Checklist model now excludes soft-deleted records from normal find/count queries.
+- Employee status changes now use confirmation and `isActive` updates.
+- Employee records are deactivated rather than hard-deleted in normal status flows.
+- Checklist Master status changes now use confirmation and preserve generated tasks.
+- Checklist deactivation only changes active/status fields and does not delete generated employee tasks.
+- Checklist soft-delete protections remain in place.
+- Company/site/department/designation deletion flows favor inactive records.
+- Poll submission is blocked outside the scheduled active date-time window.
 
-Important production rule now preserved:
+Important production rules now preserved:
 
-- Deleting generated employee tasks does not delete Checklist Master.
-- Deleting Checklist Master does not delete generated employee tasks.
+- Do not delete an employee when changing Active/Inactive status.
+- Do not delete Checklist Master when changing Active/Inactive status.
+- Do not delete generated employee tasks when deactivating Checklist Master.
+- Do not allow assigned users to submit poll responses before the Start Date Time or after the End Date Time.
 
 Remaining work:
 
-- Add more database-level referential safety checks where transaction data references master data.
-- Add migration/backfill scripts for any older rows missing `isActive` or `isDeleted`.
+- Add more database-level referential safety checks.
+- Add migration/backfill scripts for older rows missing newer flags such as checklist `isActive` or poll date-time fields.
+- Add tests for Employee Master and Checklist Master confirmation/status APIs.
 
-## 14. Module Isolation Assessment
+## 15. Polling System Status
+
+The Polling System now supports date-time windows instead of date-only windows.
+
+Backend behavior:
+
+- Poll payload accepts `startDate`, `startTime`, `endDate`, and `endTime`.
+- Combined IST-aware values are stored as `startDateTime` and `endDateTime`.
+- Poll lifecycle resolves to `upcoming`, `active`, `expired`, or `inactive`.
+- Submission is allowed only when the poll lifecycle is `active`.
+- Existing date-only fields remain available for compatibility.
+- Poll reports include the active window and status.
+- Assignment notifications are released when the poll is active.
+
+Frontend behavior:
+
+- Poll Create/Edit shows Start Date, Start Time, End Date, and End Time.
+- Inline validation handles missing fields and invalid ranges.
+- Poll List shows the date-time window and status filters.
+- Assigned Poll Response shows date-time and disables Submit outside active time.
+- Poll Report shows the poll window and lifecycle status.
+
+Recommended follow-up:
+
+- Add focused backend tests for upcoming/active/expired transitions.
+- Add UI tests for disabled poll submission before/after the active window.
+- Consider a scheduler-backed notification release if users do not naturally open poll screens at activation time.
+
+## 16. Module Isolation Assessment
 
 Improved:
 
 - Backend routes remain module-separated.
-- Backend validators are now module-separated.
-- Upload middleware is reusable rather than duplicated per module.
-- Frontend module API files now exist for key domains.
+- Backend validators are module-separated.
+- Upload middleware is reusable.
+- Frontend module API files exist for key domains.
 - Permission context and hook files are split cleanly.
 
 Still mixed:
 
-- Some controllers still combine create/update/report/workflow responsibilities.
-- Some frontend pages still combine filters, tables, cards, charts, and API orchestration.
-- Dashboard and checklist code still contain cross-module knowledge because they aggregate multiple domains.
+- Some controllers combine create/update/report/workflow responsibilities.
+- Some frontend pages combine filters, tables, cards, charts, and API orchestration.
+- Dashboard and checklist code contain cross-module aggregation knowledge.
 
-Recommended isolation direction:
+Recommended direction:
 
-- Keep backend models referenced by ids across modules.
-- Move large controller internals into service/query modules.
+- Move large controller internals into services/query modules.
 - Move large frontend page sections into smaller feature components.
-- Keep frontend API calls inside `frontend/src/api/*` rather than direct Axios calls in pages.
+- Keep frontend API calls inside `frontend/src/api/*` where practical.
+- Add tests before splitting high-risk checklist/dashboard code.
 
-## 15. Complexity Hotspots
+## 17. Complexity Hotspots
 
 Largest source files by line count:
 
-- `frontend/src/index.css` - 7295 lines
-- `backend/controllers/checklist.controller.js` - 3740 lines
-- `frontend/src/pages/Dashboard.jsx` - 2890 lines
-- `backend/services/checklistWorkflow.service.js` - 2011 lines
-- `backend/controllers/complaint.controller.js` - 1753 lines
-- `frontend/src/pages/checklists/ChecklistCreate.jsx` - 1725 lines
-- `backend/controllers/dashboard.controller.js` - 1516 lines
-- `frontend/src/dashboard-redesign.css` - 1471 lines
-- `frontend/src/pages/ChatModule.jsx` - 1462 lines
-- `backend/controllers/poll.controller.js` - 1458 lines
-- `backend/services/chatbot.service.js` - 1205 lines
-- `frontend/src/pages/OwnTasks.jsx` - 1135 lines
-- `frontend/src/components/Navbar.jsx` - 1126 lines
-- `backend/services/createChatModule.service.js` - 974 lines
-- `backend/controllers/attendance.controller.js` - 927 lines
-- `frontend/src/pages/masters/ChecklistTransferMaster.jsx` - 922 lines
+| Lines | File |
+|---:|---|
+| 7419 | `frontend/src/index.css` |
+| 3873 | `backend/controllers/checklist.controller.js` |
+| 2890 | `frontend/src/pages/Dashboard.jsx` |
+| 2020 | `backend/services/checklistWorkflow.service.js` |
+| 1754 | `frontend/src/pages/ChatModule.jsx` |
+| 1753 | `backend/controllers/complaint.controller.js` |
+| 1726 | `frontend/src/pages/checklists/ChecklistCreate.jsx` |
+| 1680 | `backend/controllers/poll.controller.js` |
+| 1516 | `backend/controllers/dashboard.controller.js` |
+| 1471 | `frontend/src/dashboard-redesign.css` |
+| 1208 | `frontend/src/pages/checklists/ChecklistTaskView.jsx` |
+| 1205 | `backend/services/chatbot.service.js` |
+| 1147 | `frontend/src/pages/OwnTasks.jsx` |
+| 1127 | `frontend/src/components/Navbar.jsx` |
+| 1054 | `frontend/src/pages/checklists/ChecklistList.jsx` |
+| 980 | `backend/services/createChatModule.service.js` |
+| 943 | `frontend/src/pages/RolePermissionSetup.jsx` |
+| 927 | `backend/controllers/attendance.controller.js` |
+| 922 | `frontend/src/pages/masters/ChecklistTransferMaster.jsx` |
+| 896 | `frontend/src/pages/IntroWelcomeScreen.jsx` |
 
 Interpretation:
 
-- The checklist module is the highest-risk maintenance area.
-- Dashboard rendering and analytics are also high-risk due to file size and cross-domain aggregation.
-- CSS is too centralized and should be split by feature or design system layer.
-- Complaint and poll modules are feature-rich but controller-heavy.
-- Navbar has grown into a large component and may benefit from navigation data extraction.
+- Checklist remains the largest backend maintenance hotspot.
+- Dashboard and global CSS remain the largest frontend maintenance hotspots.
+- Poll controller grew due to the new date-time lifecycle logic and should be a future candidate for service extraction.
+- Chat and complaint modules are also large enough to justify incremental decomposition.
 
-## 16. Frontend Quality Status
+## 18. Frontend Quality Status
 
 Current lint status:
 
 - `npm run lint` passes.
 
-Issues fixed compared with the earlier analysis:
+Current build status:
 
-- Conditional hooks in attendance screens.
-- Effect dependency warnings in attendance and complaint report screens.
-- Direct state updates inside permission-loading effect.
-- Unused variables.
-- React Fast Refresh warning from mixed context/hook exports.
-- Invalid token flow that could show Access Denied instead of forcing a clean login.
+- `npm run build` passes.
+- Vite generated separate page/vendor chunks successfully.
+- No blocking build failure was observed.
 
 Current frontend risk:
 
-- Production build succeeds, but Vite reports a large chunk warning.
-- Built JS chunk is about 1.3 MB minified.
-- Built CSS is about 427 KB.
-- Large global CSS increases regression risk.
+- Global CSS remains too centralized.
+- Some large route pages remain maintenance-heavy.
+- The login image is a relatively large static asset.
+- Chart/vendor code is still one of the heavier frontend output groups.
 
 Recommended frontend next steps:
 
-- Add route-level lazy loading with `React.lazy`.
-- Split chart-heavy dashboard code into dynamic imports.
 - Split `index.css` into base, layout, utilities, and feature styles.
 - Extract Dashboard cards, filters, tables, and chart sections into components.
+- Consider route-level lazy loading if future chunks grow again.
+- Compress or optimize large static images where visual quality allows.
 
-## 17. Testing Status
+## 19. Testing Status
 
-Implemented backend tests:
+Backend tests currently cover:
 
 - Auth login
 - Permission middleware behavior
@@ -505,12 +581,7 @@ Implemented backend tests:
 - Complaint lifecycle flow
 - Poll response flow
 
-Backend test tooling:
-
-- Jest
-- Supertest
-
-Implemented frontend tests:
+Frontend tests currently cover:
 
 - Login route render
 - Permission-based route guard
@@ -518,43 +589,26 @@ Implemented frontend tests:
 - Checklist screen render
 - Complaint report render
 
-Frontend test tooling:
-
-- Vitest
-- React Testing Library
-- Jest DOM
-- JSDOM
-
-Current verification results from April 29, 2026:
+Current verification results from May 2, 2026:
 
 ```text
-npm run lint
-Result: passed
-```
-
-```text
-npm run test
 Backend: 8 suites passed, 15 tests passed
 Frontend: 7 files passed, 11 tests passed
-Result: passed
-```
-
-```text
-npm run build
-Result: passed
 ```
 
 Testing gaps:
 
-- No integration tests with a real Mongo test database.
-- No end-to-end browser tests.
+- No Mongo-backed integration tests.
+- No Playwright or browser end-to-end tests.
 - No upload security tests.
 - No dashboard API contract tests.
-- No regression tests for soft-delete behavior across all master modules.
+- No regression tests yet for Employee Master status confirmation.
+- No regression tests yet for Checklist Master status confirmation.
+- No date-time lifecycle tests yet for Poll Master.
 
-## 18. Build and Deployment Readiness
+## 20. Build and Deployment Readiness
 
-Root scripts now available:
+Root scripts:
 
 - `npm run dev`
 - `npm run build`
@@ -577,113 +631,114 @@ Frontend scripts:
 - `npm --prefix frontend run test`
 - `npm --prefix frontend run preview`
 
-Production checklist already documented in `README.md`:
+Deployment checklist:
 
 - Configure backend env vars.
 - Configure frontend env vars if not using same-origin `/api`.
 - Use strong `JWT_SECRET`.
 - Set explicit `CORS_ORIGIN`.
 - Keep `.env` files out of git.
-- Keep uploads/logs/node_modules out of git.
+- Keep uploads/logs/node_modules/build output out of git.
 - Run lint, tests, and build before deployment.
+- Review IIS notes in `IIS_DEPLOYMENT.md` if deploying through IIS.
 
-## 19. Current Known Issues
+## 21. Current Known Issues
 
-Known issue 1: Large frontend bundle
+Known issue 1: Large files remain
 
-- Build passes, but Vite warns that chunks exceed 500 KB.
-- This affects first-load performance.
-- Best fix is route-level and chart-level code splitting.
+- Several controllers, pages, and CSS files are still large.
+- This is the highest maintainability risk.
+- Best fix is incremental decomposition with tests around each split.
 
-Known issue 2: Duplicate PollResponse index warning
+Known issue 2: LocalStorage token model
 
-- Backend starts successfully.
-- Mongoose warns about duplicate index declaration on `PollResponse.assignment`.
-- Best fix is to keep the index in only one place: either field-level `index: true` or schema-level `schema.index()`, not both.
-
-Known issue 3: Large files remain
-
-- Several large files are still maintenance hotspots.
-- They were not fully decomposed during the hardening pass to avoid changing behavior too aggressively.
-- This should be handled incrementally with tests around each split.
-
-Known issue 4: LocalStorage token model
-
-- The app stores auth token in localStorage.
+- Auth token is stored in localStorage.
 - This is workable for controlled internal apps but has XSS exposure.
 - Consider HTTP-only cookie auth if the app is exposed more broadly.
 
-Known issue 5: Uploaded file access model
+Known issue 3: Uploaded file access model
 
 - Uploads are served statically.
-- Sensitive attachment modules may need authenticated download endpoints.
+- Sensitive attachments may need authenticated download endpoints.
 
-## 20. Risk Matrix
+Known issue 4: Notification timing for future polls
+
+- Poll assignment notifications are now gated by active windows.
+- Without a dedicated scheduler/worker, activation-time notifications rely on app activity or relevant API calls.
+- A scheduled poll activation job would make this stronger.
+
+Known issue 5: Missing migration/backfill for new date-time fields
+
+- New polls will store `startTime`, `endTime`, `startDateTime`, and `endDateTime`.
+- Older poll rows may need a backfill if they exist in production.
+
+## 22. Risk Matrix
 
 | Area | Current Status | Risk | Notes |
 |---|---|---:|---|
-| Feature coverage | Strong | Low | Broad modules already exist |
-| Permission model | Strong | Low-Medium | Good architecture; DB permission rows need review after module additions |
+| Feature coverage | Strong | Low | Broad operational modules exist |
+| Permission model | Strong | Low-Medium | Good architecture; permission rows need review after additions |
 | Backend security | Improved | Medium | Env/CORS/JWT/upload hardening done; token model remains |
 | Validation | Improved | Medium | Important schemas exist; legacy manual validation remains |
 | Error handling | Improved | Low-Medium | Central handler exists; older controllers still use local catch blocks |
-| Testing | Improved | Medium | Basic tests pass; integration/E2E missing |
-| Frontend build size | Needs work | Medium | Build passes with large chunk warning |
+| Testing | Improved | Medium | Unit/component tests pass; integration/E2E missing |
+| Frontend build | Passing | Low-Medium | Current build passes; static image and chart assets remain notable |
 | Maintainability | Needs work | Medium-High | Large controllers/pages/CSS remain |
 | Observability | Basic | Medium | Structured logs exist; no metrics/tracing/correlation ids |
-| Data deletion safety | Improved | Medium | Soft-delete protections added; more relation checks recommended |
+| Data safety | Improved | Medium | Status confirmations and soft-delete protections improved |
+| Poll scheduling | Improved | Medium | Date-time lifecycle added; scheduler-backed notifications recommended |
 
-## 21. Recommended Next Priorities
+## 23. Recommended Next Priorities
 
-Priority 1: Clean remaining runtime warnings
+Priority 1: Add regression tests for new status and poll-window behavior
 
-- Remove duplicate `PollResponse.assignment` index definition.
-- Add a small regression test or startup check if possible.
+- Employee Active/Inactive status update.
+- Checklist Master Active/Inactive status update.
+- Poll upcoming/active/expired submission rules.
+- Poll create/update validation for date-time windows.
 
-Priority 2: Split frontend bundle
+Priority 2: Add a poll activation scheduler
 
-- Lazy-load route pages in `App.jsx`.
-- Lazy-load chart-heavy dashboard sections.
-- Consider manual chunks for vendor chart libraries.
+- Periodically transition eligible polls.
+- Release notifications exactly when `startDateTime` arrives.
+- Optionally send reminders before `endDateTime`.
 
-Priority 3: Refactor checklist backend safely
+Priority 3: Backfill existing poll rows
 
-- Extract checklist create/update validation helpers.
-- Extract approval request logic.
+- Populate `startTime`, `endTime`, `startDateTime`, and `endDateTime` for older date-only polls.
+- Decide defaults for older records, such as `00:00` start and `23:59` end in IST.
+
+Priority 4: Refactor checklist backend safely
+
+- Extract status helpers.
 - Extract report query logic.
-- Extract scheduler and recurrence helpers from `checklistWorkflow.service.js`.
-- Add tests around each extracted behavior before or during the split.
+- Extract scheduler and recurrence helpers.
+- Add tests before each extraction.
 
-Priority 4: Refactor dashboard frontend
+Priority 5: Split frontend CSS and large pages
 
-- Extract dashboard cards.
-- Extract filters.
-- Extract drilldown tables.
-- Extract performance indicator components.
-- Keep API contracts unchanged during the split.
+- Split `index.css`.
+- Extract Dashboard components.
+- Extract Checklist List/Create sections.
+- Extract Poll Create/List/Report sections if the poll module continues growing.
 
-Priority 5: Improve upload and attachment security
+Priority 6: Improve upload and attachment security
 
-- Add upload tests for MIME rejection and size limits.
-- Consider private attachment access for complaint/chat/checklist files.
-- Add cleanup policy for orphaned uploads.
-
-Priority 6: Expand test depth
-
-- Add Mongo-backed integration tests for auth, permissions, soft delete, checklist generation, complaint flow, and poll flow.
-- Add Playwright smoke tests for login, dashboard, checklist, complaints, and attendance.
+- Add MIME and file-size tests.
+- Add authenticated attachment download routes.
+- Add orphaned upload cleanup policy.
 
 Priority 7: Improve observability
 
 - Add request ids.
-- Add structured application logger.
+- Add a structured application logger.
 - Add production log rotation or external log collection.
-- Add health details for Mongo connectivity and scheduler status.
+- Extend health checks to include MongoDB and scheduler status.
 
-## 22. Final Verdict
+## 24. Final Verdict
 
-The project is now in a much healthier state than the earlier April 25 snapshot. The main production blockers from the first analysis have been addressed: unsafe config fallbacks were removed, CORS is explicit, validation is centralized, uploads are safer, error handling is standardized, tests exist, root scripts are usable, docs exist, and the backend has been verified running locally.
+As of May 2, 2026, the project is functionally broad, locally verified, and suitable for controlled internal use with the existing safeguards. The latest updates improved safety in Employee Master and Checklist Master status changes and made Poll Master scheduling more precise by adding date-time lifecycle logic.
 
-The system is still complex, and that complexity is concentrated in a few large files. The next best work is not another broad hardening sweep; it is targeted decomposition with tests around the checklist, dashboard, complaint, poll, and CSS hotspots. The app is capable and close to a solid internal production posture, but it will become much easier to maintain once the largest files are split by responsibility.
+The strongest parts of the system are its permission model, module coverage, and improving validation/security foundation. The main remaining risks are maintainability hotspots, limited integration/E2E test coverage, localStorage token exposure, static upload serving, and the absence of a dedicated poll activation scheduler.
 
-Prepared from direct inspection and command verification of the workspace on April 29, 2026.
+The next best work is targeted regression testing plus incremental decomposition of the largest files. Avoid broad rewrites; the app has enough surface area now that small, tested improvements will carry it further than sweeping restructuring.
