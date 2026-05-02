@@ -111,6 +111,7 @@ const CHECKLIST_REQUEST_NOTIFICATION_TYPES = {
 };
 
 const checklistExcelColumns = [
+<<<<<<< HEAD
   { header: "#", key: "serialNumber", width: 8 },
   { header: "Checklist Number", key: "checklistNumber", width: 18 },
   { header: "Name", key: "checklistName", width: 28, aliases: ["Checklist Name"] },
@@ -131,6 +132,34 @@ const checklistExcelColumns = [
   { header: "Approver Mapping", key: "approvalEmployeeCodes", width: 30, aliases: ["Approval Employee Codes"] },
   { header: "Dependency", key: "dependencyTaskNumber", width: 24, aliases: ["Dependent Task", "Previous Task Number"] },
   { header: "Status", key: "status", width: 12 },
+=======
+  { header: "Checklist Number", key: "checklistNumber", width: 18 },
+  { header: "Checklist Name", key: "checklistName", width: 28 },
+  { header: "Assigned Site", key: "assignedSite", width: 28 },
+  { header: "Source Site", key: "sourceSite", width: 28 },
+  { header: "Assigned Employee Code", key: "assignedEmployeeCode", width: 22 },
+  { header: "Priority", key: "priority", width: 12 },
+  { header: "Schedule Type", key: "scheduleType", width: 14 },
+  { header: "Start Date", key: "startDate", width: 14 },
+  { header: "Schedule Time", key: "scheduleTime", width: 14 },
+  { header: "End Date", key: "endDate", width: 14 },
+  { header: "End Time", key: "endTime", width: 14 },
+  { header: "Enable Mark", key: "enableMark", width: 12 },
+  { header: "Base Mark", key: "baseMark", width: 12 },
+  { header: "Delay Penalty Per Day", key: "delayPenaltyPerDay", width: 20 },
+  { header: "Advance Bonus Per Day", key: "advanceBonusPerDay", width: 20 },
+  { header: "Custom Repeat Interval", key: "customRepeatInterval", width: 20 },
+  { header: "Custom Repeat Unit", key: "customRepeatUnit", width: 18 },
+  { header: "Repeat Day Of Week", key: "repeatDayOfWeek", width: 18 },
+  { header: "Repeat Day Of Month", key: "repeatDayOfMonth", width: 18 },
+  { header: "Repeat Month Of Year", key: "repeatMonthOfYear", width: 20 },
+  { header: "Approval Hierarchy", key: "approvalHierarchy", width: 18 },
+  { header: "Approval Employee Codes", key: "approvalEmployeeCodes", width: 24 },
+  { header: "Dependent Task", key: "isDependentTask", width: 14 },
+  { header: "Previous Task Number", key: "dependencyTaskNumber", width: 24 },
+  { header: "Target Day Count", key: "targetDayCount", width: 18 },
+  { header: "Task Related Questions", key: "checklistItems", width: 48 },
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 ];
 
 const checklistTaskReportExcelColumns = [
@@ -165,6 +194,7 @@ const reportMarkFormatter = new Intl.NumberFormat("en-IN", {
 
 const requiredChecklistImportKeys = [
   "checklistName",
+<<<<<<< HEAD
   "sourceSite",
   "assignedEmployeeCode",
   "scheduleType",
@@ -172,6 +202,16 @@ const requiredChecklistImportKeys = [
   "startTime",
   "endDate",
   "endTime",
+=======
+  "assignedSite",
+  "assignedEmployeeCode",
+  "scheduleType",
+  "startDate",
+  "scheduleTime",
+  "endDate",
+  "endTime",
+  "checklistItems",
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 ];
 
 const checklistExcelColumnMap = new Map(
@@ -1636,6 +1676,7 @@ const extractCellValue = (value) => {
 
 const getCellText = (value) => normalizeText(extractCellValue(value));
 
+<<<<<<< HEAD
 const CHECKLIST_IMPORT_DATE_TIME_ERROR =
   "Invalid date or time format. Use dd-mm-yyyy and HH:mm";
 const checklistImportDateRegex = /^\d{2}-\d{2}-\d{4}$/;
@@ -1649,12 +1690,24 @@ const getChecklistImportDateString = (value) => {
       pad(extractedValue.getUTCDate()),
       pad(extractedValue.getUTCMonth() + 1),
       extractedValue.getUTCFullYear(),
+=======
+const getExcelDateString = (value) => {
+  const extractedValue = extractCellValue(value);
+
+  if (extractedValue instanceof Date && !Number.isNaN(extractedValue.getTime())) {
+    const shiftedDate = new Date(extractedValue.getTime() + IST_OFFSET_MS);
+    return [
+      shiftedDate.getUTCFullYear(),
+      pad(shiftedDate.getUTCMonth() + 1),
+      pad(shiftedDate.getUTCDate()),
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     ].join("-");
   }
 
   return normalizeText(extractedValue);
 };
 
+<<<<<<< HEAD
 const getChecklistImportTimeString = (value) => {
   const extractedValue = extractCellValue(value);
 
@@ -1668,11 +1721,19 @@ const getChecklistImportTimeString = (value) => {
     if (totalMinutes < 0 || totalMinutes >= 24 * 60) return "";
 
     return `${pad(Math.floor(totalMinutes / 60))}:${pad(totalMinutes % 60)}`;
+=======
+const getExcelTimeString = (value) => {
+  const extractedValue = extractCellValue(value);
+
+  if (extractedValue instanceof Date && !Number.isNaN(extractedValue.getTime())) {
+    return `${pad(extractedValue.getHours())}:${pad(extractedValue.getMinutes())}`;
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   }
 
   return normalizeText(extractedValue);
 };
 
+<<<<<<< HEAD
 const parseChecklistImportDateTime = (dateValue, timeValue) => {
   const date = getChecklistImportDateString(dateValue);
   const time = getChecklistImportTimeString(timeValue);
@@ -1741,6 +1802,8 @@ const parseChecklistImportNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 const parseDelimitedCell = (value) =>
   getCellText(value)
     .split(/\r?\n|\|/)
@@ -1763,6 +1826,7 @@ const parseBooleanCell = (value, fallback = false) => {
   return fallback;
 };
 
+<<<<<<< HEAD
 const parseScoringCell = (value) => {
   const normalizedValue = normalizeLookupKey(value);
   if (["enabled", "enable", "yes", "true", "1"].includes(normalizedValue)) return true;
@@ -1770,6 +1834,8 @@ const parseScoringCell = (value) => {
   return parseBooleanCell(value, false);
 };
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 const buildSiteLookup = (sites = []) => {
   const siteLookup = new Map();
 
@@ -1847,15 +1913,20 @@ const getWorksheetCellValue = (row, headerMap, key) => {
   const column = checklistExcelColumnMap.get(key);
   if (!column) return "";
 
+<<<<<<< HEAD
   const headerCandidates = [column.header, ...(column.aliases || [])];
   const columnNumber = headerCandidates
     .map((header) => headerMap.get(normalizeLookupKey(header)))
     .find(Boolean);
+=======
+  const columnNumber = headerMap.get(normalizeLookupKey(column.header));
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   if (!columnNumber) return "";
 
   return row.getCell(columnNumber).value;
 };
 
+<<<<<<< HEAD
 const hasWorksheetHeaderForKey = (headerMap, key) => {
   const column = checklistExcelColumnMap.get(key);
   if (!column) return false;
@@ -1870,6 +1941,8 @@ const parseChecklistImportDateTimeFromCells = (dateValue, timeValue) =>
   parseChecklistImportDateTimeCell(dateValue) ||
   parseChecklistImportDateTimeCell(timeValue);
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 const isChecklistImportRowEmpty = (row, headerMap) =>
   checklistExcelColumns.every((column) => !getCellText(getWorksheetCellValue(row, headerMap, column.key)));
 
@@ -1906,6 +1979,7 @@ const buildApprovalCodesCellValue = (approvals = []) =>
     .filter(Boolean)
     .join(" | ");
 
+<<<<<<< HEAD
 const formatExcelDateDisplay = (value) => {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
@@ -1996,6 +2070,8 @@ const formatChecklistDependencyExcelLabel = (checklist = {}) => {
     : dependencyTaskNumber;
 };
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 const getChecklistFilters = (query = {}) => {
   const search = normalizeText(query.search);
   const scheduleType = normalizeText(query.scheduleType).toLowerCase();
@@ -3133,6 +3209,7 @@ exports.updateChecklist = async (req, res) => {
 
 exports.toggleChecklistStatus = async (req, res) => {
   try {
+<<<<<<< HEAD
     if (!hasChecklistMasterAccess(req.user)) {
       return res.status(403).json({ message: "Checklist Master access is required" });
     }
@@ -3145,11 +3222,15 @@ exports.toggleChecklistStatus = async (req, res) => {
         restrictedSiteId ? { employeeAssignedSite: restrictedSiteId } : {}
       )
     );
+=======
+    const checklist = await Checklist.findById(req.params.id);
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
     if (!checklist) {
       return res.status(404).json({ message: "Checklist master not found" });
     }
 
+<<<<<<< HEAD
     const requestedStatus = normalizeText(req.body?.status).toLowerCase();
     const nextStatus =
       typeof req.body?.isActive === "boolean"
@@ -3163,6 +3244,9 @@ exports.toggleChecklistStatus = async (req, res) => {
     checklist.status = nextStatus;
     checklist.isActive = nextStatus;
     checklist.updatedBy = req.user?.id || checklist.updatedBy || null;
+=======
+    checklist.status = !checklist.status;
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     await checklist.save();
 
     if (checklist.status) {
@@ -3172,8 +3256,11 @@ exports.toggleChecklistStatus = async (req, res) => {
     return res.json({
       success: true,
       status: checklist.status,
+<<<<<<< HEAD
       isActive: checklist.isActive,
       statusLabel: checklist.status ? "Active" : "Inactive",
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     });
   } catch (err) {
     console.error("TOGGLE CHECKLIST STATUS ERROR:", err);
@@ -3209,10 +3296,15 @@ exports.deleteChecklist = async (req, res) => {
     }
 
     checklist.status = false;
+<<<<<<< HEAD
     checklist.isActive = false;
     checklist.isDeleted = true;
     checklist.deletedAt = new Date();
     checklist.updatedBy = req.user?.id || checklist.updatedBy || null;
+=======
+    checklist.isDeleted = true;
+    checklist.deletedAt = new Date();
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     await checklist.save();
 
     return res.json({ success: true });
@@ -3283,10 +3375,15 @@ exports.bulkDeleteChecklists = async (req, res) => {
       {
         $set: {
           status: false,
+<<<<<<< HEAD
           isActive: false,
           isDeleted: true,
           deletedAt: new Date(),
           updatedBy: req.user?.id || null,
+=======
+          isDeleted: true,
+          deletedAt: new Date(),
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         },
       }
     );
@@ -3322,6 +3419,7 @@ exports.exportChecklistsExcel = async (req, res) => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Check List Workspace";
 
+<<<<<<< HEAD
     const worksheet = workbook.addWorksheet(CHECKLIST_EXCEL_SHEET_NAME);
     const exportColumns = checklistExcelColumns;
 
@@ -3408,6 +3506,109 @@ exports.exportChecklistsExcel = async (req, res) => {
             : "Default",
         dependencyTaskNumber: formatChecklistDependencyExcelLabel(checklist),
         status: formatChecklistStatusLabel(checklist.status),
+=======
+    const instructionsSheet = workbook.addWorksheet(CHECKLIST_INSTRUCTIONS_SHEET_NAME);
+    instructionsSheet.columns = [
+      { header: "Field", key: "field", width: 28 },
+      { header: "How To Fill", key: "description", width: 80 },
+      { header: "Example", key: "example", width: 40 },
+    ];
+    instructionsSheet.getRow(1).font = { bold: true };
+    instructionsSheet.addRows([
+      {
+        field: "Assigned Site",
+        description:
+          "Use the exact site display name from Site Master. Exported rows already use the correct format.",
+        example: "Repplen Project Pvt Ltd - Head Office Repplen",
+      },
+      {
+        field: "Assigned Employee Code",
+        description:
+          "Use the exact employee code of the employee who should receive generated tasks.",
+        example: "5012",
+      },
+      {
+        field: "Schedule Type",
+        description: "Allowed values: daily, weekly, monthly, yearly, custom.",
+        example: "daily",
+      },
+      {
+        field: "Start Date / End Date",
+        description: "Use YYYY-MM-DD format.",
+        example: "2026-03-23",
+      },
+      {
+        field: "Schedule Time / End Time",
+        description: "Use 24-hour HH:mm format.",
+        example: "09:00",
+      },
+      {
+        field: "Approval Employee Codes",
+        description:
+          "For custom workflow only. Separate multiple employee codes with | or line breaks.",
+        example: "1003 | 1007",
+      },
+      {
+        field: "Dependent Task",
+        description: "Optional. Use yes or no to control whether the checklist waits for a previous task.",
+        example: "yes",
+      },
+      {
+        field: "Previous Task Number",
+        description:
+          "Required when Dependent Task is yes. Enter the existing checklist number that must finish first.",
+        example: "HO - 001",
+      },
+      {
+        field: "Target Day Count",
+        description:
+          "Required when Dependent Task is yes. Enter the number of days after the previous task completion when the new task becomes due.",
+        example: "2",
+      },
+      {
+        field: "Task Related Questions",
+        description:
+          "Format each question as Question::Guidance::RequiredFlag and separate questions with | or line breaks.",
+        example: "Was PPE worn?::Mention the safety gear used::yes | Upload evidence::Share the proof file name::no",
+      },
+    ]);
+
+    const worksheet = workbook.addWorksheet(CHECKLIST_EXCEL_SHEET_NAME);
+    worksheet.columns = checklistExcelColumns;
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+
+    checklists.forEach((checklist) => {
+      worksheet.addRow({
+        checklistNumber: checklist.checklistNumber || "",
+        checklistName: checklist.checklistName || "",
+        assignedSite: formatSiteDisplayName(checklist.employeeAssignedSite),
+        sourceSite: formatSiteDisplayName(checklist.checklistSourceSite),
+        assignedEmployeeCode: normalizeText(checklist.assignedToEmployee?.employeeCode),
+        priority: normalizeText(checklist.priority || "medium"),
+        scheduleType: normalizeText(checklist.scheduleType),
+        startDate: getExcelDateString(checklist.startDate),
+        scheduleTime: normalizeText(checklist.scheduleTime),
+        endDate: getExcelDateString(checklist.endDate),
+        endTime: normalizeText(checklist.endTime),
+        enableMark: checklist.enableMark ? "yes" : "no",
+        baseMark: checklist.baseMark ?? "",
+        delayPenaltyPerDay: checklist.delayPenaltyPerDay ?? "",
+        advanceBonusPerDay: checklist.advanceBonusPerDay ?? "",
+        customRepeatInterval: checklist.customRepeatInterval ?? "",
+        customRepeatUnit: normalizeText(checklist.customRepeatUnit),
+        repeatDayOfWeek: normalizeText(checklist.repeatDayOfWeek),
+        repeatDayOfMonth: checklist.repeatDayOfMonth ?? "",
+        repeatMonthOfYear: checklist.repeatMonthOfYear ?? "",
+        approvalHierarchy: normalizeText(checklist.approvalHierarchy || "default"),
+        approvalEmployeeCodes: buildApprovalCodesCellValue(checklist.approvals),
+        isDependentTask: checklist.isDependentTask ? "yes" : "no",
+        dependencyTaskNumber:
+          normalizeText(checklist.dependencyTaskNumber) ||
+          normalizeText(checklist.dependencyChecklistId?.checklistNumber),
+        targetDayCount: checklist.targetDayCount ?? "",
+        checklistItems: buildChecklistItemsCellValue(checklist.checklistItems),
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       });
     });
 
@@ -3448,7 +3649,12 @@ exports.importChecklistsExcel = async (req, res) => {
 
     const headerMap = buildWorksheetHeaderMap(worksheet);
     const missingHeaders = requiredChecklistImportKeys.filter((key) => {
+<<<<<<< HEAD
       return !hasWorksheetHeaderForKey(headerMap, key);
+=======
+      const column = checklistExcelColumnMap.get(key);
+      return !headerMap.get(normalizeLookupKey(column?.header));
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     });
 
     if (missingHeaders.length) {
@@ -3487,8 +3693,12 @@ exports.importChecklistsExcel = async (req, res) => {
     const employeeLookup = buildEmployeeLookup(employees);
     const checklistLookup = buildChecklistLookup(checklists);
     const defaultSite = restrictedSiteId && sites.length === 1 ? sites[0] : null;
+<<<<<<< HEAD
     const failedRows = [];
     const skippedRows = [];
+=======
+    const failures = [];
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     const createdChecklistIds = [];
     let processedCount = 0;
 
@@ -3501,6 +3711,7 @@ exports.importChecklistsExcel = async (req, res) => {
 
       processedCount += 1;
 
+<<<<<<< HEAD
       const checklistNumberValue = getWorksheetCellValue(row, headerMap, "checklistNumber");
       const checklistNumber = getCellText(checklistNumberValue);
 
@@ -3513,6 +3724,9 @@ exports.importChecklistsExcel = async (req, res) => {
         continue;
       }
 
+=======
+      const assignedSiteValue = getWorksheetCellValue(row, headerMap, "assignedSite");
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       const sourceSiteValue = getWorksheetCellValue(row, headerMap, "sourceSite");
       const assignedEmployeeCodeValue = getWorksheetCellValue(
         row,
@@ -3524,11 +3738,16 @@ exports.importChecklistsExcel = async (req, res) => {
         headerMap,
         "approvalEmployeeCodes"
       );
+<<<<<<< HEAD
+=======
+      const dependentTaskValue = getWorksheetCellValue(row, headerMap, "isDependentTask");
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       const dependencyTaskNumberValue = getWorksheetCellValue(
         row,
         headerMap,
         "dependencyTaskNumber"
       );
+<<<<<<< HEAD
 
       const assignedSite =
         siteLookup.get(normalizeLookupKey(sourceSiteValue)) ||
@@ -3536,21 +3755,51 @@ exports.importChecklistsExcel = async (req, res) => {
 
       if (!assignedSite) {
         failedRows.push({
+=======
+      const targetDayCountValue = getWorksheetCellValue(row, headerMap, "targetDayCount");
+
+      const assignedSite =
+        siteLookup.get(normalizeLookupKey(assignedSiteValue)) ||
+        (!getCellText(assignedSiteValue) ? defaultSite : null);
+
+      if (!assignedSite) {
+        failures.push({
+          rowNumber,
+          message: "Assigned Site is invalid or not available to this user",
+        });
+        continue;
+      }
+
+      const sourceSiteText = getCellText(sourceSiteValue);
+      const sourceSite = sourceSiteText
+        ? siteLookup.get(normalizeLookupKey(sourceSiteValue))
+        : null;
+
+      if (sourceSiteText && !sourceSite) {
+        failures.push({
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           rowNumber,
           message: "Source Site is invalid or not available to this user",
         });
         continue;
       }
 
+<<<<<<< HEAD
       const sourceSiteText = getCellText(sourceSiteValue);
       const sourceSite = sourceSiteText ? assignedSite : null;
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       const assignedEmployee = employeeLookup.get(
         normalizeLookupKey(assignedEmployeeCodeValue)
       );
 
       if (!assignedEmployee) {
+<<<<<<< HEAD
         failedRows.push({
+=======
+        failures.push({
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           rowNumber,
           message: "Assigned Employee Code is invalid or inactive",
         });
@@ -3559,12 +3808,17 @@ exports.importChecklistsExcel = async (req, res) => {
 
       const approvalRows = [];
       const invalidApprovalCodes = [];
+<<<<<<< HEAD
       const approvalMappingText = getCellText(approvalEmployeeCodesValue);
       const approvalMappingIsDefault = ["", "default"].includes(
         normalizeLookupKey(approvalMappingText)
       );
 
       (approvalMappingIsDefault ? [] : parseDelimitedCell(approvalEmployeeCodesValue)).forEach((employeeCode) => {
+=======
+
+      parseDelimitedCell(approvalEmployeeCodesValue).forEach((employeeCode) => {
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         const approvalEmployee = employeeLookup.get(normalizeLookupKey(employeeCode));
 
         if (!approvalEmployee) {
@@ -3576,13 +3830,18 @@ exports.importChecklistsExcel = async (req, res) => {
       });
 
       if (invalidApprovalCodes.length) {
+<<<<<<< HEAD
         failedRows.push({
+=======
+        failures.push({
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           rowNumber,
           message: `Invalid approval employee codes: ${invalidApprovalCodes.join(", ")}`,
         });
         continue;
       }
 
+<<<<<<< HEAD
       const dependencyText = getCellText(dependencyTaskNumberValue);
       const dependencyParts = dependencyText
         .split("|")
@@ -3601,6 +3860,17 @@ exports.importChecklistsExcel = async (req, res) => {
 
       if (isDependentTask && !dependencyTaskNumber) {
         failedRows.push({
+=======
+      const isDependentTask = parseBooleanCell(dependentTaskValue, false);
+      const dependencyTaskNumber = getCellText(dependencyTaskNumberValue);
+      const targetDayCount = getCellText(targetDayCountValue);
+      const dependencyChecklist = isDependentTask
+        ? checklistLookup.get(normalizeLookupKey(dependencyTaskNumberValue))
+        : null;
+
+      if (isDependentTask && !dependencyTaskNumber) {
+        failures.push({
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           rowNumber,
           message: "Previous Task Number is required when Dependent Task is yes",
         });
@@ -3608,13 +3878,18 @@ exports.importChecklistsExcel = async (req, res) => {
       }
 
       if (isDependentTask && !dependencyChecklist) {
+<<<<<<< HEAD
         failedRows.push({
+=======
+        failures.push({
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           rowNumber,
           message: "Previous Task Number is invalid or not available to this user",
         });
         continue;
       }
 
+<<<<<<< HEAD
       const importedStartDateTime = parseChecklistImportDateTimeFromCells(
         getWorksheetCellValue(row, headerMap, "startDate"),
         getWorksheetCellValue(row, headerMap, "startTime")
@@ -3661,18 +3936,29 @@ exports.importChecklistsExcel = async (req, res) => {
           rowNumber,
           message:
             "Base Mark, Delay Penalty / Day, and Advance Bonus / Day are required valid numbers when Scoring is Enabled",
+=======
+      if (isDependentTask && !targetDayCount) {
+        failures.push({
+          rowNumber,
+          message: "Target Day Count is required when Dependent Task is yes",
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         });
         continue;
       }
 
       const importPayload = {
+<<<<<<< HEAD
         checklistNumber,
+=======
+        checklistNumber: getCellText(getWorksheetCellValue(row, headerMap, "checklistNumber")),
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         checklistName: getCellText(getWorksheetCellValue(row, headerMap, "checklistName")),
         checklistSourceSite: sourceSite?._id || "",
         assignedToEmployee: assignedEmployee._id,
         employeeAssignedSite: assignedSite._id,
         priority: getCellText(getWorksheetCellValue(row, headerMap, "priority")) || "medium",
         scheduleType: getCellText(getWorksheetCellValue(row, headerMap, "scheduleType")),
+<<<<<<< HEAD
         startDate: importedStartDateTime.serviceDate,
         scheduleTime: importedStartDateTime.time,
         endDate: importedEndDateTime.serviceDate,
@@ -3690,6 +3976,34 @@ exports.importChecklistsExcel = async (req, res) => {
         approvalEmployeeCodes: approvalMappingIsDefault
           ? []
           : parseDelimitedCell(approvalEmployeeCodesValue),
+=======
+        startDate: getExcelDateString(getWorksheetCellValue(row, headerMap, "startDate")),
+        scheduleTime: getExcelTimeString(getWorksheetCellValue(row, headerMap, "scheduleTime")),
+        endDate: getExcelDateString(getWorksheetCellValue(row, headerMap, "endDate")),
+        endTime: getExcelTimeString(getWorksheetCellValue(row, headerMap, "endTime")),
+        enableMark: parseBooleanCell(getWorksheetCellValue(row, headerMap, "enableMark"), false),
+        baseMark: getCellText(getWorksheetCellValue(row, headerMap, "baseMark")),
+        delayPenaltyPerDay: getCellText(
+          getWorksheetCellValue(row, headerMap, "delayPenaltyPerDay")
+        ),
+        advanceBonusPerDay: getCellText(
+          getWorksheetCellValue(row, headerMap, "advanceBonusPerDay")
+        ),
+        customRepeatInterval: getCellText(
+          getWorksheetCellValue(row, headerMap, "customRepeatInterval")
+        ),
+        customRepeatUnit: getCellText(getWorksheetCellValue(row, headerMap, "customRepeatUnit")),
+        repeatDayOfWeek: getCellText(getWorksheetCellValue(row, headerMap, "repeatDayOfWeek")),
+        repeatDayOfMonth: getCellText(
+          getWorksheetCellValue(row, headerMap, "repeatDayOfMonth")
+        ),
+        repeatMonthOfYear: getCellText(
+          getWorksheetCellValue(row, headerMap, "repeatMonthOfYear")
+        ),
+        approvalHierarchy:
+          getCellText(getWorksheetCellValue(row, headerMap, "approvalHierarchy")) || "default",
+        approvalEmployeeCodes: parseDelimitedCell(approvalEmployeeCodesValue),
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         approvals: approvalRows,
         isDependentTask,
         dependencyChecklistId: dependencyChecklist?._id || "",
@@ -3706,7 +4020,11 @@ exports.importChecklistsExcel = async (req, res) => {
       });
 
       if (validationResult.message) {
+<<<<<<< HEAD
         failedRows.push({
+=======
+        failures.push({
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           rowNumber,
           message: validationResult.message,
         });
@@ -3716,7 +4034,10 @@ exports.importChecklistsExcel = async (req, res) => {
       try {
         const checklist = await Checklist.create({
           ...validationResult.payload,
+<<<<<<< HEAD
           status,
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           createdBy: req.user?.id || null,
         });
 
@@ -3727,6 +4048,7 @@ exports.importChecklistsExcel = async (req, res) => {
           employeeAssignedSite: checklist.employeeAssignedSite,
         });
       } catch (err) {
+<<<<<<< HEAD
         if (err?.code === 11000) {
           skippedRows.push({
             rowNumber,
@@ -3746,6 +4068,12 @@ exports.importChecklistsExcel = async (req, res) => {
             message: "Failed to import row",
           });
         }
+=======
+        failures.push({
+          rowNumber,
+          message: err?.code === 11000 ? "Checklist number already exists" : "Failed to import row",
+        });
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       }
     }
 
@@ -3761,11 +4089,16 @@ exports.importChecklistsExcel = async (req, res) => {
       message: "Checklist import completed",
       processedCount,
       createdCount: createdChecklistIds.length,
+<<<<<<< HEAD
       skippedCount: skippedRows.length,
       failedCount: failedRows.length,
       skippedRows,
       failedRows,
       failures: failedRows,
+=======
+      failedCount: failures.length,
+      failures,
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     });
   } catch (err) {
     console.error("IMPORT CHECKLISTS EXCEL ERROR:", err);

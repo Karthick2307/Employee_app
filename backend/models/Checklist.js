@@ -203,6 +203,7 @@ const checklistSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+<<<<<<< HEAD
     isActive: {
       type: Boolean,
       default: function defaultChecklistIsActive() {
@@ -210,6 +211,8 @@ const checklistSchema = new mongoose.Schema(
       },
       index: true,
     },
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     isDeleted: {
       type: Boolean,
       default: false,
@@ -224,11 +227,14 @@ const checklistSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+<<<<<<< HEAD
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   },
   { timestamps: true }
 );

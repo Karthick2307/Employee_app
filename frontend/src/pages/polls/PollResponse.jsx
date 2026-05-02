@@ -8,6 +8,10 @@ import {
 } from "../../utils/fileValidation";
 import {
   formatPollAssignmentStatusLabel,
+<<<<<<< HEAD
+=======
+  formatPollDate,
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   formatPollDateTime,
   formatPollResponseTypeLabel,
   formatPollWindowStateLabel,
@@ -169,12 +173,21 @@ export default function PollResponse() {
       <div className="soft-card mb-4">
         <div className="row g-3">
           <div className="col-lg-3">
+<<<<<<< HEAD
             <div className="small text-muted">Start Date Time</div>
             <div className="fw-semibold">{formatPollDateTime(poll.startDateTime || poll.startDate)}</div>
           </div>
           <div className="col-lg-3">
             <div className="small text-muted">End Date Time</div>
             <div className="fw-semibold">{formatPollDateTime(poll.endDateTime || poll.endDate)}</div>
+=======
+            <div className="small text-muted">Start Date</div>
+            <div className="fw-semibold">{formatPollDate(poll.startDate)}</div>
+          </div>
+          <div className="col-lg-3">
+            <div className="small text-muted">End Date</div>
+            <div className="fw-semibold">{formatPollDate(poll.endDate)}</div>
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           </div>
           <div className="col-lg-3">
             <div className="small text-muted">Questions</div>
@@ -192,11 +205,15 @@ export default function PollResponse() {
           <div className="alert alert-light border mt-3 mb-0">
             {task.assignmentStatus === "submitted"
               ? "This poll has already been submitted. If resubmission is enabled, it will reopen automatically while the poll remains active."
+<<<<<<< HEAD
               : poll.windowState === "upcoming"
               ? "This poll is upcoming. Submission will open at the scheduled start time."
               : poll.windowState === "expired"
               ? "This poll has expired. Submission is no longer available."
               : "This poll is not currently active for submission."}
+=======
+              : "This poll is not currently open for submission."}
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
           </div>
         ) : null}
       </div>
@@ -310,6 +327,7 @@ export default function PollResponse() {
           <Link className="btn btn-outline-secondary" to="/polls">
             Close
           </Link>
+<<<<<<< HEAD
           <button
             type="button"
             className="btn btn-success"
@@ -322,6 +340,17 @@ export default function PollResponse() {
               ? "Resubmit Response"
               : "Submit Response"}
           </button>
+=======
+          {canSubmit ? (
+            <button type="button" className="btn btn-success" onClick={submitResponse} disabled={saving}>
+              {saving
+                ? "Submitting..."
+                : task.assignmentStatus === "submitted"
+                ? "Resubmit Response"
+                : "Submit Response"}
+            </button>
+          ) : null}
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         </div>
       </div>
     </div>

@@ -80,17 +80,21 @@ const pollMasterSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+<<<<<<< HEAD
     startTime: {
       type: String,
       required: true,
       trim: true,
       match: /^([01]\d|2[0-3]):[0-5]\d$/,
     },
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     endDate: {
       type: Date,
       required: true,
       index: true,
     },
+<<<<<<< HEAD
     endTime: {
       type: String,
       required: true,
@@ -116,6 +120,12 @@ const pollMasterSchema = new mongoose.Schema(
       type: String,
       enum: ["upcoming", "active", "expired", "inactive"],
       default: "upcoming",
+=======
+    status: {
+      type: String,
+      enum: ["active", "inactive"],
+      default: "active",
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
       index: true,
     },
     createdById: {
@@ -154,8 +164,12 @@ const pollMasterSchema = new mongoose.Schema(
   }
 );
 
+<<<<<<< HEAD
 pollMasterSchema.index({ scopeType: 1, scopeIds: 1, status: 1, isEnabled: 1 });
 pollMasterSchema.index({ startDateTime: 1, endDateTime: 1 });
+=======
+pollMasterSchema.index({ scopeType: 1, scopeIds: 1, status: 1 });
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 pollMasterSchema.index({ createdById: 1, createdAt: -1 });
 
 module.exports = mongoose.model("PollMaster", pollMasterSchema);

@@ -111,10 +111,13 @@ export default function EmployeeList() {
   const [loading, setLoading] = useState(false);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+<<<<<<< HEAD
   const [statusConfirmation, setStatusConfirmation] = useState(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [statusError, setStatusError] = useState("");
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 
   const [params] = useSearchParams();
   const department = params.get("department");
@@ -250,6 +253,7 @@ export default function EmployeeList() {
     }
   };
 
+<<<<<<< HEAD
   const openStatusConfirmation = (employee) => {
     setStatusMessage("");
     setStatusError("");
@@ -280,6 +284,16 @@ export default function EmployeeList() {
       setStatusError(err.response?.data?.message || "Status update failed");
     } finally {
       setStatusSaving(false);
+=======
+  const toggleStatus = async (id, currentStatus) => {
+    try {
+      await api.patch(`/employees/${id}/status`, {
+        isActive: !currentStatus,
+      });
+      loadEmployees();
+    } catch {
+      alert("Status update failed");
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     }
   };
 
@@ -403,12 +417,15 @@ export default function EmployeeList() {
           ) : null}
         </div>
 
+<<<<<<< HEAD
         {statusMessage ? (
           <div className="alert alert-success py-2 mt-3 mb-0" role="status">
             {statusMessage}
           </div>
         ) : null}
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         <div className="employee-directory-stats mt-4">
           {stats.map((stat) => (
             <div key={stat.label} className={`employee-directory-stat-card ${stat.accentClass}`}>
@@ -695,11 +712,18 @@ export default function EmployeeList() {
 
                             {canToggleEmployeeStatus ? (
                               <button
+<<<<<<< HEAD
                                 type="button"
                                 className={`btn btn-sm app-icon-action-btn ${
                                   employee.isActive ? "btn-secondary" : "btn-success"
                                 }`}
                                 onClick={() => openStatusConfirmation(employee)}
+=======
+                                className={`btn btn-sm app-icon-action-btn ${
+                                  employee.isActive ? "btn-secondary" : "btn-success"
+                                }`}
+                                onClick={() => toggleStatus(employee._id, employee.isActive)}
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
                                 title={`${
                                   employee.isActive ? "Deactivate" : "Activate"
                                 } ${employee.employeeName || employee.employeeCode || "employee"}`}
@@ -732,6 +756,7 @@ export default function EmployeeList() {
           </table>
         </div>
       </div>
+<<<<<<< HEAD
 
       {statusConfirmation ? (
         <EmployeeStatusConfirmationModal
@@ -824,6 +849,8 @@ function EmployeeStatusConfirmationModal({ employee, saving, error, onCancel, on
           </div>
         </div>
       </div>
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     </div>
   );
 }

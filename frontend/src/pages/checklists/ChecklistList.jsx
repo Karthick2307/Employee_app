@@ -12,7 +12,10 @@ import {
   formatCurrentApproverLabel,
   formatDateTime,
   formatEmployeeLabel,
+<<<<<<< HEAD
   formatMarkValue,
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   formatPriorityLabel,
   formatScheduleLabel,
   formatTaskFinalMarkLabel,
@@ -135,10 +138,13 @@ export default function ChecklistList() {
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+<<<<<<< HEAD
   const [statusConfirmation, setStatusConfirmation] = useState(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [statusError, setStatusError] = useState("");
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   const [reloadToken, setReloadToken] = useState(0);
   const importInputRef = useRef(null);
 
@@ -218,6 +224,7 @@ export default function ChecklistList() {
     setSelectedChecklistIds(visibleChecklistIds);
   };
 
+<<<<<<< HEAD
   const openChecklistStatusConfirmation = (checklist) => {
     setStatusMessage("");
     setStatusError("");
@@ -250,6 +257,19 @@ export default function ChecklistList() {
       setStatusError(err.response?.data?.message || "Failed to update checklist status");
     } finally {
       setStatusSaving(false);
+=======
+  const toggleChecklistStatus = async (id) => {
+    try {
+      await api.patch(`/checklists/${id}/status`);
+      setRows((prev) =>
+        prev.map((row) =>
+          row._id === id ? { ...row, status: !row.status } : row
+        )
+      );
+    } catch (err) {
+      console.error("Checklist status toggle failed:", err);
+      alert(err.response?.data?.message || "Failed to update checklist status");
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     }
   };
 
@@ -387,6 +407,7 @@ export default function ChecklistList() {
       });
 
       const createdCount = Number(response.data?.createdCount || 0);
+<<<<<<< HEAD
       const skippedRows = Array.isArray(response.data?.skippedRows)
         ? response.data.skippedRows
         : [];
@@ -407,11 +428,19 @@ export default function ChecklistList() {
         .join("\n");
       const failedDetails = failedRows
         .map((row) => `Row ${row.rowNumber}: ${row.message}`)
+=======
+      const failedCount = Number(response.data?.failedCount || 0);
+      const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
+      const previewFailures = failures
+        .slice(0, 5)
+        .map((failure) => `Row ${failure.rowNumber}: ${failure.message}`)
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         .join("\n");
 
       alert(
         [
           `Import completed.`,
+<<<<<<< HEAD
           "",
           `${createdCount} checklist master${createdCount === 1 ? "" : "s"} created.`,
           "",
@@ -424,6 +453,11 @@ export default function ChecklistList() {
           "Tip:",
           "• Remove duplicate checklist numbers before importing",
           "• Ensure Assigned Site and Employee mapping is correct",
+=======
+          `${createdCount} checklist master${createdCount === 1 ? "" : "s"} created.`,
+          `${failedCount} row${failedCount === 1 ? "" : "s"} failed.`,
+          previewFailures ? `\n${previewFailures}` : "",
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         ].join("\n")
       );
 
@@ -460,7 +494,11 @@ export default function ChecklistList() {
         setSearch={setSearch}
         setStatus={setStatus}
         setScheduleType={setScheduleType}
+<<<<<<< HEAD
         openChecklistStatusConfirmation={openChecklistStatusConfirmation}
+=======
+        toggleChecklistStatus={toggleChecklistStatus}
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         deleteChecklist={deleteChecklist}
         selectedChecklistIds={selectedChecklistIds}
         toggleChecklistSelection={toggleChecklistSelection}
@@ -481,6 +519,7 @@ export default function ChecklistList() {
         canRunScheduler={canStatusUpdateChecklistMaster}
         canExport={canExportChecklistMaster}
         canImport={canCreateChecklistMaster}
+<<<<<<< HEAD
         statusMessage={statusMessage}
       />
       {statusConfirmation ? (
@@ -492,6 +531,9 @@ export default function ChecklistList() {
           onConfirm={confirmChecklistStatusChange}
         />
       ) : null}
+=======
+      />
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     </>
   ) : (
     <EmployeeChecklistTaskList
@@ -519,7 +561,11 @@ function AdminChecklistMasterList({
   setSearch,
   setStatus,
   setScheduleType,
+<<<<<<< HEAD
   openChecklistStatusConfirmation,
+=======
+  toggleChecklistStatus,
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
   deleteChecklist,
   selectedChecklistIds,
   toggleChecklistSelection,
@@ -540,7 +586,10 @@ function AdminChecklistMasterList({
   canEdit,
   canToggle,
   canRunScheduler,
+<<<<<<< HEAD
   statusMessage,
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 }) {
   const allRowsSelected =
     rows.length > 0 &&
@@ -615,12 +664,15 @@ function AdminChecklistMasterList({
           </div>
         </div>
 
+<<<<<<< HEAD
         {statusMessage ? (
           <div className="alert alert-success py-2 mt-3 mb-0" role="status">
             {statusMessage}
           </div>
         ) : null}
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
         <div className="list-summary mt-3">
           <span className="summary-chip">{rows.length} masters</span>
           <span className="summary-chip summary-chip--neutral">{activeCount} active</span>
@@ -708,9 +760,12 @@ function AdminChecklistMasterList({
               <th>Checklist Number</th>
               <th>Name</th>
               <th>Scoring</th>
+<<<<<<< HEAD
               <th>Base Mark</th>
               <th>Delay Penalty / Day</th>
               <th>Advance Bonus / Day</th>
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
               <th>Source Site</th>
               <th>Employee</th>
               <th>Priority</th>
@@ -727,7 +782,11 @@ function AdminChecklistMasterList({
           <tbody>
             {loading && (
               <tr>
+<<<<<<< HEAD
                 <td colSpan={canDelete ? "19" : "18"} className="text-center">
+=======
+                <td colSpan={canDelete ? "16" : "15"} className="text-center">
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
                   Loading checklist masters...
                 </td>
               </tr>
@@ -735,7 +794,11 @@ function AdminChecklistMasterList({
 
             {!loading && rows.length === 0 && (
               <tr>
+<<<<<<< HEAD
                 <td colSpan={canDelete ? "19" : "18"} className="text-center">
+=======
+                <td colSpan={canDelete ? "16" : "15"} className="text-center">
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
                   No checklist masters found
                 </td>
               </tr>
@@ -760,9 +823,12 @@ function AdminChecklistMasterList({
                   <td>{row.checklistNumber}</td>
                   <td className="fw-semibold">{row.checklistName}</td>
                   <td>{formatChecklistScoreLabel(row)}</td>
+<<<<<<< HEAD
                   <td>{row.enableMark ? formatMarkValue(row.baseMark) : "-"}</td>
                   <td>{row.enableMark ? formatMarkValue(row.delayPenaltyPerDay) : "-"}</td>
                   <td>{row.enableMark ? formatMarkValue(row.advanceBonusPerDay) : "-"}</td>
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
                   <td>{getChecklistSiteName(row.checklistSourceSite) || "-"}</td>
                   <td>{formatEmployeeLabel(row.assignedToEmployee)}</td>
                   <td>
@@ -780,11 +846,15 @@ function AdminChecklistMasterList({
                     <div className="small text-muted">{row.endTime || "-"}</div>
                   </td>
                   <td>{formatDateTime(row.nextOccurrenceAt)}</td>
+<<<<<<< HEAD
                   <td>
                     {String(row.approvalHierarchy || "").toLowerCase() === "custom"
                       ? formatApprovalLabel(row)
                       : "Default"}
                   </td>
+=======
+                  <td>{formatApprovalLabel(row)}</td>
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
                   <td>
                     <div>{formatChecklistDependencyLabel(row)}</div>
                     {row.isDependentTask ? (
@@ -824,7 +894,11 @@ function AdminChecklistMasterList({
                           className={`btn btn-sm app-icon-action-btn ${
                             row.status ? "btn-outline-secondary" : "btn-outline-success"
                           }`}
+<<<<<<< HEAD
                           onClick={() => openChecklistStatusConfirmation(row)}
+=======
+                          onClick={() => toggleChecklistStatus(row._id)}
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
                           title={row.status ? "Deactivate checklist master" : "Activate checklist master"}
                           aria-label={`${
                             row.status ? "Deactivate" : "Activate"
@@ -856,6 +930,7 @@ function AdminChecklistMasterList({
   );
 }
 
+<<<<<<< HEAD
 function ChecklistStatusConfirmationModal({ checklist, saving, error, onCancel, onConfirm }) {
   const isDeactivation = Boolean(checklist.status);
   const checklistLabel =
@@ -940,6 +1015,8 @@ function ChecklistStatusConfirmationModal({ checklist, saving, error, onCancel, 
   );
 }
 
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
 function EmployeeChecklistTaskList({
   rows,
   loading,

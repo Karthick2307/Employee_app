@@ -43,12 +43,20 @@ export const formatPollWindowStateLabel = (value) => {
 
   switch (normalized) {
     case "active":
+<<<<<<< HEAD
       return "Active";
     case "upcoming":
       return "Upcoming";
     case "expired":
     case "closed":
       return "Expired";
+=======
+      return "Open";
+    case "upcoming":
+      return "Upcoming";
+    case "closed":
+      return "Closed";
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     case "inactive":
       return "Inactive";
     default:
@@ -64,7 +72,10 @@ export const getPollWindowBadgeClass = (value) => {
       return "bg-success-subtle text-success-emphasis border border-success-subtle";
     case "upcoming":
       return "bg-warning-subtle text-warning-emphasis border border-warning-subtle";
+<<<<<<< HEAD
     case "expired":
+=======
+>>>>>>> 1431bec5e8ec768e26da0e53c3a9a009d8102dfb
     case "closed":
       return "bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle";
     case "inactive":
