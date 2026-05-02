@@ -981,7 +981,7 @@ a:hover {
   color: var(--app-text) !important;
 }
 
-.table-warning > :not(caption) > * > * {
+.table > thead.table-warning > tr > * {
   background-color: var(--app-table-warning-bg) !important;
   color: var(--app-text) !important;
 }
@@ -4155,6 +4155,17 @@ a:hover {
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+
+.table > tbody > tr.table-danger .app-icon-action-btn:hover,
+.table > tbody > tr.table-danger .app-icon-action-btn:focus-visible,
+.table > tbody > tr.table-warning .app-icon-action-btn:hover,
+.table > tbody > tr.table-warning .app-icon-action-btn:focus-visible,
+.table > tbody > tr.table-success .app-icon-action-btn:hover,
+.table > tbody > tr.table-success .app-icon-action-btn:focus-visible {
+  background-color: var(--bs-btn-hover-bg) !important;
+  border-color: var(--bs-btn-hover-border-color) !important;
+  color: var(--bs-btn-hover-color) !important;
 }
 
 .bg-primary-subtle {
