@@ -134,6 +134,10 @@ export default function ChecklistList() {
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+  const [statusConfirmation, setStatusConfirmation] = useState(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [statusError, setStatusError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const importInputRef = useRef(null);
 
@@ -213,17 +217,38 @@ export default function ChecklistList() {
     setSelectedChecklistIds(visibleChecklistIds);
   };
 
-  const toggleChecklistStatus = async (id) => {
+  const openChecklistStatusConfirmation = (checklist) => {
+    setStatusMessage("");
+    setStatusError("");
+    setStatusConfirmation(checklist);
+  };
+
+  const closeChecklistStatusConfirmation = () => {
+    if (statusSaving) return;
+    setStatusConfirmation(null);
+    setStatusError("");
+  };
+
+  const confirmChecklistStatusChange = async () => {
+    if (!statusConfirmation) return;
+
+    const nextStatus = !statusConfirmation.status;
+    setStatusSaving(true);
+    setStatusError("");
+
     try {
-      await api.patch(`/checklists/${id}/status`);
-      setRows((prev) =>
-        prev.map((row) =>
-          row._id === id ? { ...row, status: !row.status } : row
-        )
-      );
+      await api.patch(`/checklists/${statusConfirmation._id}/status`, {
+        isActive: nextStatus,
+        status: nextStatus ? "Active" : "Inactive",
+      });
+      setStatusConfirmation(null);
+      setStatusMessage("Checklist status updated successfully");
+      setReloadToken((currentValue) => currentValue + 1);
     } catch (err) {
       console.error("Checklist status toggle failed:", err);
-      alert(err.response?.data?.message || "Failed to update checklist status");
+      setStatusError(err.response?.data?.message || "Failed to update checklist status");
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -410,7 +435,7 @@ export default function ChecklistList() {
         setSearch={setSearch}
         setStatus={setStatus}
         setScheduleType={setScheduleType}
-        toggleChecklistStatus={toggleChecklistStatus}
+        openChecklistStatusConfirmation={openChecklistStatusConfirmation}
         deleteChecklist={deleteChecklist}
         selectedChecklistIds={selectedChecklistIds}
         toggleChecklistSelection={toggleChecklistSelection}
@@ -431,7 +456,17 @@ export default function ChecklistList() {
         canRunScheduler={canStatusUpdateChecklistMaster}
         canExport={canExportChecklistMaster}
         canImport={canCreateChecklistMaster}
+        statusMessage={statusMessage}
       />
+      {statusConfirmation ? (
+        <ChecklistStatusConfirmationModal
+          checklist={statusConfirmation}
+          saving={statusSaving}
+          error={statusError}
+          onCancel={closeChecklistStatusConfirmation}
+          onConfirm={confirmChecklistStatusChange}
+        />
+      ) : null}
     </>
   ) : (
     <EmployeeChecklistTaskList
@@ -459,7 +494,7 @@ function AdminChecklistMasterList({
   setSearch,
   setStatus,
   setScheduleType,
-  toggleChecklistStatus,
+  openChecklistStatusConfirmation,
   deleteChecklist,
   selectedChecklistIds,
   toggleChecklistSelection,
@@ -480,6 +515,7 @@ function AdminChecklistMasterList({
   canEdit,
   canToggle,
   canRunScheduler,
+  statusMessage,
 }) {
   const allRowsSelected =
     rows.length > 0 &&
@@ -553,6 +589,12 @@ function AdminChecklistMasterList({
             ) : null}
           </div>
         </div>
+
+        {statusMessage ? (
+          <div className="alert alert-success py-2 mt-3 mb-0" role="status">
+            {statusMessage}
+          </div>
+        ) : null}
 
         <div className="list-summary mt-3">
           <span className="summary-chip">{rows.length} masters</span>
@@ -747,7 +789,7 @@ function AdminChecklistMasterList({
                           className={`btn btn-sm app-icon-action-btn ${
                             row.status ? "btn-outline-secondary" : "btn-outline-success"
                           }`}
-                          onClick={() => toggleChecklistStatus(row._id)}
+                          onClick={() => openChecklistStatusConfirmation(row)}
                           title={row.status ? "Deactivate checklist master" : "Activate checklist master"}
                           aria-label={`${
                             row.status ? "Deactivate" : "Activate"
@@ -774,6 +816,90 @@ function AdminChecklistMasterList({
           </tbody>
         </table>
       </div>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistStatusConfirmationModal({ checklist, saving, error, onCancel, onConfirm }) {
+  const isDeactivation = Boolean(checklist.status);
+  const checklistLabel =
+    [checklist.checklistNumber, checklist.checklistName].filter(Boolean).join(" - ") ||
+    "this checklist";
+
+  return (
+    <div
+      className="modal fade show d-block app-modal-overlay"
+      tabIndex="-1"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checklist-status-confirmation-title"
+    >
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content">
+          <div className="modal-header">
+            <div>
+              <h5 className="modal-title mb-1" id="checklist-status-confirmation-title">
+                {isDeactivation
+                  ? "Are you sure you want to deactivate this checklist?"
+                  : "Do you want to activate this checklist?"}
+              </h5>
+              <div className="text-muted small">{checklistLabel}</div>
+            </div>
+            <button
+              type="button"
+              className="btn-close"
+              aria-label="Close"
+              onClick={onCancel}
+              disabled={saving}
+            />
+          </div>
+          <div className="modal-body">
+            <div
+              className={`alert ${
+                isDeactivation ? "alert-warning" : "alert-info"
+              } d-flex gap-3 align-items-start mb-0`}
+              role="alert"
+            >
+              <span className="fs-4 lh-1" aria-hidden="true">
+                {isDeactivation ? "⚠️" : "ℹ️"}
+              </span>
+              <div>
+                {isDeactivation
+                  ? "New employee tasks will not be generated from this checklist after deactivation. Existing generated tasks will remain unchanged."
+                  : "This checklist will start generating employee tasks again based on its schedule."}
+              </div>
+            </div>
+
+            {error ? (
+              <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">
+                {error}
+              </div>
+            ) : null}
+          </div>
+          <div className="modal-footer">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={onCancel}
+              disabled={saving}
+            >
+              No, Cancel
+            </button>
+            <button
+              type="button"
+              className={`btn ${isDeactivation ? "btn-danger" : "btn-success"}`}
+              onClick={onConfirm}
+              disabled={saving}
+            >
+              {saving
+                ? "Updating..."
+                : isDeactivation
+                ? "Yes, Deactivate"
+                : "Yes, Activate"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

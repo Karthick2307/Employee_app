@@ -12,7 +12,9 @@ const pollCreateSchema = z
     description: optionalTrimmedString,
     purpose: optionalTrimmedString,
     startDate: requiredTrimmedString("Start date"),
+    startTime: requiredTrimmedString("Start time"),
     endDate: requiredTrimmedString("End date"),
+    endTime: requiredTrimmedString("End time"),
     scopeType: z.preprocess(
       (value) => String(value || "").trim().toLowerCase(),
       z.enum(["company", "site", "department"])
@@ -20,6 +22,7 @@ const pollCreateSchema = z
     scopeIds: z.any(),
     questions: z.any(),
     allowResubmission: z.any().optional(),
+    isEnabled: z.any().optional(),
     status: optionalTrimmedString,
   })
   .passthrough();

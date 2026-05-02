@@ -8,7 +8,6 @@ import {
 } from "../../utils/fileValidation";
 import {
   formatPollAssignmentStatusLabel,
-  formatPollDate,
   formatPollDateTime,
   formatPollResponseTypeLabel,
   formatPollWindowStateLabel,
@@ -170,12 +169,12 @@ export default function PollResponse() {
       <div className="soft-card mb-4">
         <div className="row g-3">
           <div className="col-lg-3">
-            <div className="small text-muted">Start Date</div>
-            <div className="fw-semibold">{formatPollDate(poll.startDate)}</div>
+            <div className="small text-muted">Start Date Time</div>
+            <div className="fw-semibold">{formatPollDateTime(poll.startDateTime || poll.startDate)}</div>
           </div>
           <div className="col-lg-3">
-            <div className="small text-muted">End Date</div>
-            <div className="fw-semibold">{formatPollDate(poll.endDate)}</div>
+            <div className="small text-muted">End Date Time</div>
+            <div className="fw-semibold">{formatPollDateTime(poll.endDateTime || poll.endDate)}</div>
           </div>
           <div className="col-lg-3">
             <div className="small text-muted">Questions</div>
@@ -193,7 +192,11 @@ export default function PollResponse() {
           <div className="alert alert-light border mt-3 mb-0">
             {task.assignmentStatus === "submitted"
               ? "This poll has already been submitted. If resubmission is enabled, it will reopen automatically while the poll remains active."
-              : "This poll is not currently open for submission."}
+              : poll.windowState === "upcoming"
+              ? "This poll is upcoming. Submission will open at the scheduled start time."
+              : poll.windowState === "expired"
+              ? "This poll has expired. Submission is no longer available."
+              : "This poll is not currently active for submission."}
           </div>
         ) : null}
       </div>
@@ -307,15 +310,18 @@ export default function PollResponse() {
           <Link className="btn btn-outline-secondary" to="/polls">
             Close
           </Link>
-          {canSubmit ? (
-            <button type="button" className="btn btn-success" onClick={submitResponse} disabled={saving}>
-              {saving
-                ? "Submitting..."
-                : task.assignmentStatus === "submitted"
-                ? "Resubmit Response"
-                : "Submit Response"}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="btn btn-success"
+            onClick={submitResponse}
+            disabled={!canSubmit || saving}
+          >
+            {saving
+              ? "Submitting..."
+              : task.assignmentStatus === "submitted" && canSubmit
+              ? "Resubmit Response"
+              : "Submit Response"}
+          </button>
         </div>
       </div>
     </div>

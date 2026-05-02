@@ -3,9 +3,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import api from "../../api/axios";
 import {
   formatPollAssignmentStatusLabel,
-  formatPollDate,
   formatPollDateTime,
+  formatPollWindowStateLabel,
   getPollAssignmentBadgeClass,
+  getPollWindowBadgeClass,
 } from "../../utils/pollDisplay";
 import {
   buildPollShareSummary,
@@ -404,21 +405,32 @@ export default function PollReport() {
       ) : (
         <>
           <div className="row g-3 mb-4">
-            <div className="col-lg-4">
+            <div className="col-lg-3">
               <div className="soft-card h-100">
                 <div className="small text-muted">Poll Window</div>
                 <div className="fw-semibold">
-                  {formatPollDate(reportData.poll?.startDate)} to {formatPollDate(reportData.poll?.endDate)}
+                  {formatPollDateTime(reportData.poll?.startDateTime || reportData.poll?.startDate)} to{" "}
+                  {formatPollDateTime(reportData.poll?.endDateTime || reportData.poll?.endDate)}
                 </div>
               </div>
             </div>
-            <div className="col-lg-4">
+            <div className="col-lg-3">
+              <div className="soft-card h-100">
+                <div className="small text-muted">Poll Status</div>
+                <div className="mt-2">
+                  <span className={`badge ${getPollWindowBadgeClass(reportData.poll?.windowState || reportData.poll?.status)}`}>
+                    {formatPollWindowStateLabel(reportData.poll?.windowState || reportData.poll?.status)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="col-lg-3">
               <div className="soft-card h-100">
                 <div className="small text-muted">Total Responses</div>
                 <div className="display-6 fw-semibold">{reportData.summary?.totalResponses || 0}</div>
               </div>
             </div>
-            <div className="col-lg-4">
+            <div className="col-lg-3">
               <div className="soft-card h-100">
                 <div className="small text-muted">Pending Responses</div>
                 <div className="display-6 fw-semibold">{reportData.summary?.pendingResponses || 0}</div>
